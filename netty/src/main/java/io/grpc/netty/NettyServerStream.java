@@ -206,12 +206,12 @@ class NettyServerStream extends AbstractServerStream {
   public static class TransportState extends AbstractServerStream.TransportState
       implements StreamIdHolder {
     private final Http2Stream http2Stream;
-    private final NettyServerHandler handler;
+    private final NettyHttp2ServerHandler handler;
     private final EventLoop eventLoop;
     private final Tag tag;
 
     public TransportState(
-        NettyServerHandler handler,
+        NettyHttp2ServerHandler handler,
         EventLoop eventLoop,
         Http2Stream http2Stream,
         int maxMessageSize,

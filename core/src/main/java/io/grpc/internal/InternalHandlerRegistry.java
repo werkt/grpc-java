@@ -19,6 +19,7 @@ package io.grpc.internal;
 import io.grpc.HandlerRegistry;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -51,6 +52,19 @@ final class InternalHandlerRegistry extends HandlerRegistry {
   public ServerMethodDefinition<?, ?> lookupMethod(String methodName, @Nullable String authority) {
     // TODO (carl-mastrangelo): honor authority header.
     return methods.get(methodName);
+  }
+
+  @Nullable
+  @Override
+  public ServerMethodDefinition<?, ?> lookupHttpMethod(String methodName, URI uri, @Nullable String authority) {
+    // TODO (carl-mastrangelo): honor authority header.
+    // hax for now - maybe index later
+    for (ServerMethodDefinition<?, ?> method : methods.values()) {
+      if (method.getMethodDescriptor().matchesHttpRequest(methodName, uri)) {
+        return method;
+      }
+    }
+    return null;
   }
 
   static final class Builder {

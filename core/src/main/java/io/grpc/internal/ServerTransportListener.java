@@ -18,6 +18,7 @@ package io.grpc.internal;
 
 import io.grpc.Attributes;
 import io.grpc.Metadata;
+import java.net.URI;
 
 /**
  * A observer of a server-side transport for stream creation events. Notifications must occur from
@@ -32,6 +33,16 @@ public interface ServerTransportListener {
    * @param headers containing metadata for the call.
    */
   void streamCreated(ServerStream stream, String method, Metadata headers);
+
+  /**
+   * Called when a new http stream was created by the remote client.
+   *
+   * @param stream the newly created stream.
+   * @param method the fully qualified method name being called on the server.
+   * @param uri the uri of the HTTP 1.x request
+   * @param headers containing metadata for the call.
+   */
+  void httpStreamCreated(ServerStream stream, String method, URI uri, Metadata headers);
 
   /**
    * The transport has finished all handshakes and is ready to process streams.

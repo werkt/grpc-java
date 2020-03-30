@@ -20,12 +20,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /** Definition of a service to be exposed via a Server. */
 public final class ServerServiceDefinition {
@@ -69,6 +71,17 @@ public final class ServerServiceDefinition {
   @Internal
   public ServerMethodDefinition<?, ?> getMethod(String methodName) {
     return methods.get(methodName);
+  }
+
+  @Internal
+  @Nullable
+  public ServerMethodDefinition<?, ?> getHttpMethod(String methodName, URI uri) {
+    for (ServerMethodDefinition<?, ?> method : methods.values()) {
+      if (method.getMethodDescriptor().matchesHttpRequest(methodName, uri)) {
+        return method;
+      }
+    }
+    return null;
   }
 
   /**

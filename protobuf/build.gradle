@@ -11,7 +11,10 @@ description = 'gRPC: Protobuf'
 
 dependencies {
     compile project(':grpc-api'),
-            libraries.protobuf
+            libraries.protobuf,
+    compile (libraries.protobuf_util) {
+        exclude group: 'com.google.errorprone', module: 'error_prone_annotations'
+    }
     compile (libraries.guava) {
         // prefer our own versions from libraries instead of Guava's dependency
         exclude group: 'com.google.errorprone', module: 'error_prone_annotations'

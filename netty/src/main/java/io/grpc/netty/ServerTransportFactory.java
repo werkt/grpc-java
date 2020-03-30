@@ -16,11 +16,19 @@
 
 package io.grpc.netty;
 
-import io.grpc.internal.ServerTransportListener;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelPromise;
 
 /**
- * The Netty-based server transport interface.
+ * FIXME doc.
  */
-abstract class NettyServerTransport extends AbstractServerTransport {
-  public abstract void start(ServerTransportListener transportListener);
+public interface ServerTransportFactory {
+  /**
+   * FIXME doc.
+   *
+   * @param ch the channel to create the transport with.
+   * @param channelDone a common future for when the channel closes.
+   * @return a newly constructed transport.
+   */
+  NettyServerTransport create(Channel ch, ChannelPromise channelDone);
 }

@@ -98,8 +98,8 @@ import javax.annotation.Nullable;
  * Server-side Netty handler for GRPC processing. All event handlers are executed entirely within
  * the context of the Netty Channel thread.
  */
-class NettyServerHandler extends AbstractNettyHandler {
-  private static final Logger logger = Logger.getLogger(NettyServerHandler.class.getName());
+class NettyHttp2ServerHandler extends AbstractNettyHandler {
+  private static final Logger logger = Logger.getLogger(NettyHttp2ServerHandler.class.getName());
   private static final long KEEPALIVE_PING = 0xDEADL;
   @VisibleForTesting
   static final long GRACEFUL_SHUTDOWN_PING = 0x97ACEF001L;
@@ -133,7 +133,7 @@ class NettyServerHandler extends AbstractNettyHandler {
   @CheckForNull
   private GracefulShutdown gracefulShutdown;
 
-  static NettyServerHandler newHandler(
+  static NettyHttp2ServerHandler newHandler(
       ServerTransportListener transportListener,
       ChannelPromise channelUnused,
       List<? extends ServerStreamTracer.Factory> streamTracerFactories,
@@ -151,7 +151,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       long permitKeepAliveTimeInNanos) {
     Preconditions.checkArgument(maxHeaderListSize > 0, "maxHeaderListSize must be positive: %s",
         maxHeaderListSize);
-    Http2FrameLogger frameLogger = new Http2FrameLogger(LogLevel.DEBUG, NettyServerHandler.class);
+    Http2FrameLogger frameLogger = new Http2FrameLogger(LogLevel.DEBUG, NettyHttp2ServerHandler.class);
     Http2HeadersDecoder headersDecoder = new GrpcHttp2ServerHeadersDecoder(maxHeaderListSize);
     Http2FrameReader frameReader = new Http2InboundFrameLogger(
         new DefaultHttp2FrameReader(headersDecoder), frameLogger);
@@ -178,7 +178,7 @@ class NettyServerHandler extends AbstractNettyHandler {
   }
 
   @VisibleForTesting
-  static NettyServerHandler newHandler(
+  static NettyHttp2ServerHandler newHandler(
       ChannelPromise channelUnused,
       Http2FrameReader frameReader,
       Http2FrameWriter frameWriter,
@@ -227,7 +227,7 @@ class NettyServerHandler extends AbstractNettyHandler {
     settings.maxConcurrentStreams(maxStreams);
     settings.maxHeaderListSize(maxHeaderListSize);
 
-    return new NettyServerHandler(
+    return new NettyHttp2ServerHandler(
         channelUnused,
         connection,
         transportListener,
@@ -241,7 +241,7 @@ class NettyServerHandler extends AbstractNettyHandler {
         keepAliveEnforcer);
   }
 
-  private NettyServerHandler(
+  private NettyHttp2ServerHandler(
       ChannelPromise channelUnused,
       final Http2Connection connection,
       ServerTransportListener transportListener,
@@ -437,7 +437,7 @@ class NettyServerHandler extends AbstractNettyHandler {
           transportTracer,
           method);
 
-      PerfMark.startTask("NettyServerHandler.onHeadersRead", state.tag());
+      PerfMark.startTask("NettyHttp2ServerHandler.onHeadersRead", state.tag());
       try {
         String authority = getOrUpdateAuthority((AsciiString) headers.authority());
         NettyServerStream stream = new NettyServerStream(
@@ -451,7 +451,7 @@ class NettyServerHandler extends AbstractNettyHandler {
         state.onStreamAllocated();
         http2Stream.setProperty(streamKey, state);
       } finally {
-        PerfMark.stopTask("NettyServerHandler.onHeadersRead", state.tag());
+        PerfMark.stopTask("NettyHttp2ServerHandler.onHeadersRead", state.tag());
       }
     } catch (Exception e) {
       logger.log(Level.WARNING, "Exception in onHeadersRead()", e);
@@ -477,11 +477,11 @@ class NettyServerHandler extends AbstractNettyHandler {
     flowControlPing().onDataRead(data.readableBytes(), padding);
     try {
       NettyServerStream.TransportState stream = serverStream(requireHttp2Stream(streamId));
-      PerfMark.startTask("NettyServerHandler.onDataRead", stream.tag());
+      PerfMark.startTask("NettyHttp2ServerHandler.onDataRead", stream.tag());
       try {
         stream.inboundDataReceived(data, endOfStream);
       } finally {
-        PerfMark.stopTask("NettyServerHandler.onDataRead", stream.tag());
+        PerfMark.stopTask("NettyHttp2ServerHandler.onDataRead", stream.tag());
       }
     } catch (Throwable e) {
       logger.log(Level.WARNING, "Exception in onDataRead()", e);
@@ -494,12 +494,12 @@ class NettyServerHandler extends AbstractNettyHandler {
     try {
       NettyServerStream.TransportState stream = serverStream(connection().stream(streamId));
       if (stream != null) {
-        PerfMark.startTask("NettyServerHandler.onRstStreamRead", stream.tag());
+        PerfMark.startTask("NettyHttp2ServerHandler.onRstStreamRead", stream.tag());
         try {
           stream.transportReportStatus(
               Status.CANCELLED.withDescription("RST_STREAM received for code " + errorCode));
         } finally {
-          PerfMark.stopTask("NettyServerHandler.onRstStreamRead", stream.tag());
+          PerfMark.stopTask("NettyHttp2ServerHandler.onRstStreamRead", stream.tag());
         }
       }
     } catch (Throwable e) {
@@ -524,7 +524,7 @@ class NettyServerHandler extends AbstractNettyHandler {
     NettyServerStream.TransportState serverStream = serverStream(
         connection().stream(Http2Exception.streamId(http2Ex)));
     Tag tag = serverStream != null ? serverStream.tag() : PerfMark.createTag();
-    PerfMark.startTask("NettyServerHandler.onStreamError", tag);
+    PerfMark.startTask("NettyHttp2ServerHandler.onStreamError", tag);
     try {
       if (serverStream != null) {
         serverStream.transportReportStatus(Utils.statusFromThrowable(cause));
@@ -533,7 +533,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       // Delegate to the base class to send a RST_STREAM.
       super.onStreamError(ctx, outbound, cause, http2Ex);
     } finally {
-      PerfMark.stopTask("NettyServerHandler.onStreamError", tag);
+      PerfMark.stopTask("NettyHttp2ServerHandler.onStreamError", tag);
     }
   }
 
@@ -655,7 +655,7 @@ class NettyServerHandler extends AbstractNettyHandler {
    */
   private void sendGrpcFrame(ChannelHandlerContext ctx, SendGrpcFrameCommand cmd,
       ChannelPromise promise) throws Http2Exception {
-    PerfMark.startTask("NettyServerHandler.sendGrpcFrame", cmd.stream().tag());
+    PerfMark.startTask("NettyHttp2ServerHandler.sendGrpcFrame", cmd.stream().tag());
     PerfMark.linkIn(cmd.getLink());
     try {
       if (cmd.endStream()) {
@@ -664,7 +664,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       // Call the base class to write the HTTP/2 DATA frame.
       encoder().writeData(ctx, cmd.stream().id(), cmd.content(), 0, cmd.endStream(), promise);
     } finally {
-      PerfMark.stopTask("NettyServerHandler.sendGrpcFrame", cmd.stream().tag());
+      PerfMark.stopTask("NettyHttp2ServerHandler.sendGrpcFrame", cmd.stream().tag());
     }
   }
 
@@ -673,7 +673,7 @@ class NettyServerHandler extends AbstractNettyHandler {
    */
   private void sendResponseHeaders(ChannelHandlerContext ctx, SendResponseHeadersCommand cmd,
       ChannelPromise promise) throws Http2Exception {
-    PerfMark.startTask("NettyServerHandler.sendResponseHeaders", cmd.stream().tag());
+    PerfMark.startTask("NettyHttp2ServerHandler.sendResponseHeaders", cmd.stream().tag());
     PerfMark.linkIn(cmd.getLink());
     try {
       // TODO(carl-mastrangelo): remove this check once https://github.com/netty/netty/issues/6296
@@ -689,13 +689,13 @@ class NettyServerHandler extends AbstractNettyHandler {
       }
       encoder().writeHeaders(ctx, streamId, cmd.headers(), 0, cmd.endOfStream(), promise);
     } finally {
-      PerfMark.stopTask("NettyServerHandler.sendResponseHeaders", cmd.stream().tag());
+      PerfMark.stopTask("NettyHttp2ServerHandler.sendResponseHeaders", cmd.stream().tag());
     }
   }
 
   private void cancelStream(ChannelHandlerContext ctx, CancelServerStreamCommand cmd,
       ChannelPromise promise) {
-    PerfMark.startTask("NettyServerHandler.cancelStream", cmd.stream().tag());
+    PerfMark.startTask("NettyHttp2ServerHandler.cancelStream", cmd.stream().tag());
     PerfMark.linkIn(cmd.getLink());
     try {
       // Notify the listener if we haven't already.
@@ -703,7 +703,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       // Terminate the stream.
       encoder().writeRstStream(ctx, cmd.stream().id(), Http2Error.CANCEL.code(), promise);
     } finally {
-      PerfMark.stopTask("NettyServerHandler.cancelStream", cmd.stream().tag());
+      PerfMark.stopTask("NettyHttp2ServerHandler.cancelStream", cmd.stream().tag());
     }
   }
 
@@ -715,13 +715,13 @@ class NettyServerHandler extends AbstractNettyHandler {
       public boolean visit(Http2Stream stream) throws Http2Exception {
         NettyServerStream.TransportState serverStream = serverStream(stream);
         if (serverStream != null) {
-          PerfMark.startTask("NettyServerHandler.forcefulClose", serverStream.tag());
+          PerfMark.startTask("NettyHttp2ServerHandler.forcefulClose", serverStream.tag());
           PerfMark.linkIn(msg.getLink());
           try {
             serverStream.transportReportStatus(msg.getStatus());
             resetStream(ctx, stream.id(), Http2Error.CANCEL.code(), ctx.newPromise());
           } finally {
-            PerfMark.stopTask("NettyServerHandler.forcefulClose", serverStream.tag());
+            PerfMark.stopTask("NettyHttp2ServerHandler.forcefulClose", serverStream.tag());
           }
         }
         stream.close();
@@ -788,7 +788,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onDataRead(streamId, data, padding, endOfStream);
+      NettyHttp2ServerHandler.this.onDataRead(streamId, data, padding, endOfStream);
       return padding;
     }
 
@@ -804,7 +804,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onHeadersRead(ctx, streamId, headers);
+      NettyHttp2ServerHandler.this.onHeadersRead(ctx, streamId, headers);
     }
 
     @Override
@@ -813,7 +813,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onRstStreamRead(streamId, errorCode);
+      NettyHttp2ServerHandler.this.onRstStreamRead(streamId, errorCode);
     }
 
     @Override
@@ -970,7 +970,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       long overriddenGraceTime = graceTimeOverrideMillis(savedGracefulShutdownTimeMillis);
       try {
         gracefulShutdownTimeoutMillis(overriddenGraceTime);
-        NettyServerHandler.super.close(ctx, ctx.newPromise());
+        NettyHttp2ServerHandler.super.close(ctx, ctx.newPromise());
       } catch (Exception e) {
         onError(ctx, /* outbound= */ true, e);
       } finally {

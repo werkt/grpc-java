@@ -93,6 +93,47 @@ class NettyServer implements InternalServer, InternalWithLogId {
   private final List<? extends ServerStreamTracer.Factory> streamTracerFactories;
   private final TransportTracer.Factory transportTracerFactory;
   private final InternalChannelz channelz;
+  private final ServerTransportFactory http2ServerTransportFactory = new ServerTransportFactory() {
+    @Override
+    public NettyServerTransport create(Channel ch, ChannelPromise channelDone) {
+      long maxConnectionAgeInNanos = NettyServer.this.maxConnectionAgeInNanos;
+      if (maxConnectionAgeInNanos != MAX_CONNECTION_AGE_NANOS_DISABLED) {
+        // apply a random jitter of +/-10% to max connection age
+        maxConnectionAgeInNanos =
+            (long) ((.9D + Math.random() * .2D) * maxConnectionAgeInNanos);
+      }
+
+      return new NettyHttp2ServerTransport(
+          ch,
+          channelDone,
+          protocolNegotiator,
+          streamTracerFactories,
+          transportTracerFactory.create(),
+          maxStreamsPerConnection,
+          flowControlWindow,
+          maxMessageSize,
+          maxHeaderListSize,
+          keepAliveTimeInNanos,
+          keepAliveTimeoutInNanos,
+          maxConnectionIdleInNanos,
+          maxConnectionAgeInNanos,
+          maxConnectionAgeGraceInNanos,
+          permitKeepAliveWithoutCalls,
+          permitKeepAliveTimeInNanos);
+    }
+  };
+  private final ServerTransportFactory http1ServerTransportFactory = new ServerTransportFactory() {
+    @Override
+    public NettyServerTransport create(Channel ch, ChannelPromise channelDone) {
+      return new NettyHttp1ServerTransport(
+          ch,
+          channelDone,
+          streamTracerFactories,
+          transportTracerFactory.create(),
+          maxMessageSize);
+    }
+  };
+
   // Only modified in event loop but safe to read any time.
   private volatile InternalInstrumented<SocketStats> listenSocketStats;
 
@@ -180,31 +221,11 @@ class NettyServer implements InternalServer, InternalWithLogId {
 
         ChannelPromise channelDone = ch.newPromise();
 
-        long maxConnectionAgeInNanos = NettyServer.this.maxConnectionAgeInNanos;
-        if (maxConnectionAgeInNanos != MAX_CONNECTION_AGE_NANOS_DISABLED) {
-          // apply a random jitter of +/-10% to max connection age
-          maxConnectionAgeInNanos =
-              (long) ((.9D + Math.random() * .2D) * maxConnectionAgeInNanos);
-        }
-
-        NettyServerTransport transport =
-            new NettyServerTransport(
-                ch,
-                channelDone,
-                protocolNegotiator,
-                streamTracerFactories,
-                transportTracerFactory.create(),
-                maxStreamsPerConnection,
-                flowControlWindow,
-                maxMessageSize,
-                maxHeaderListSize,
-                keepAliveTimeInNanos,
-                keepAliveTimeoutInNanos,
-                maxConnectionIdleInNanos,
-                maxConnectionAgeInNanos,
-                maxConnectionAgeGraceInNanos,
-                permitKeepAliveWithoutCalls,
-                permitKeepAliveTimeInNanos);
+        FallbackNettyServerTransport transport = new FallbackNettyServerTransport(
+            ch,
+            channelDone,
+            http2ServerTransportFactory,
+            http1ServerTransportFactory);
         ServerTransportListener transportListener;
         // This is to order callbacks on the listener, not to guard access to channel.
         synchronized (NettyServer.this) {
@@ -234,7 +255,7 @@ class NettyServer implements InternalServer, InternalWithLogId {
           }
         }
 
-        transport.start(transportListener);
+        transport.start(listener, transportListener);
         ChannelFutureListener loopReleaser = new LoopReleaser();
         channelDone.addListener(loopReleaser);
         ch.closeFuture().addListener(loopReleaser);

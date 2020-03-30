@@ -45,6 +45,7 @@ import io.grpc.InternalInstrumented;
 import io.grpc.InternalLogId;
 import io.grpc.InternalServerInterceptors;
 import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
@@ -59,6 +60,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -467,6 +469,130 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
       transportClosed(transport);
     }
 
+    @Override
+    public void httpStreamCreated(ServerStream stream, String methodName, URI uri, Metadata headers) {
+      Tag tag = PerfMark.createTag(methodName, stream.streamId());
+      PerfMark.startTask("ServerTransportListener.httpStreamCreated", tag);
+      try {
+        httpStreamCreatedInternal(stream, methodName, uri, headers, tag);
+      } finally {
+        PerfMark.stopTask("ServerTransportListener.httpStreamCreated", tag);
+      }
+    }
+
+    private void httpStreamCreatedInternal(
+        final ServerStream stream, final String methodName, final URI uri, final Metadata headers, final Tag tag) {
+
+      if (headers.containsKey(MESSAGE_ENCODING_KEY)) {
+        String encoding = headers.get(MESSAGE_ENCODING_KEY);
+        Decompressor decompressor = decompressorRegistry.lookupDecompressor(encoding);
+        if (decompressor == null) {
+          stream.close(
+              Status.UNIMPLEMENTED.withDescription(
+                  String.format("Can't find decompressor for %s", encoding)),
+              new Metadata());
+          return;
+        }
+        stream.setDecompressor(decompressor);
+      }
+
+      /*
+      final StatsTraceContext statsTraceCtx = Preconditions.checkNotNull(
+          stream.statsTraceContext(), "statsTraceCtx not present from stream");
+      */
+
+      final Context.CancellableContext context = createContext(headers, /* statsTraceCtx=*/ null);
+      final Executor wrappedExecutor;
+      // This is a performance optimization that avoids the synchronization and queuing overhead
+      // that comes with SerializingExecutor.
+      if (executor == directExecutor()) {
+        wrappedExecutor = new SerializeReentrantCallsDirectExecutor();
+      } else {
+        wrappedExecutor = new SerializingExecutor(executor);
+      }
+
+      final Link link = PerfMark.linkOut();
+
+      final JumpToApplicationThreadServerStreamListener jumpListener
+          = new JumpToApplicationThreadServerStreamListener(
+          wrappedExecutor, executor, stream, context, tag);
+      stream.setListener(jumpListener);
+      // Run in wrappedExecutor so jumpListener.setListener() is called before any callbacks
+      // are delivered, including any errors. Callbacks can still be triggered, but they will be
+      // queued.
+
+      final class StreamCreated extends ContextRunnable {
+        StreamCreated() {
+          super(context);
+        }
+
+        @Override
+        public void runInContext() {
+          PerfMark.startTask("ServerTransportListener$StreamCreated.startCall", tag);
+          PerfMark.linkIn(link);
+          try {
+            runInternal();
+          } finally {
+            PerfMark.stopTask("ServerTransportListener$StreamCreated.startCall", tag);
+          }
+        }
+
+        private void runInternal() {
+          ServerStreamListener listener = NOOP_LISTENER;
+          try {
+            ServerMethodDefinition<?, ?> method = registry.lookupHttpMethod(methodName, uri);
+            if (method == null) {
+              method = fallbackRegistry.lookupHttpMethod(methodName, uri, stream.getAuthority());
+            }
+            if (method == null) {
+              Status status = Status.UNIMPLEMENTED.withDescription(
+                  "Method not found: " + methodName + " " + uri);
+              // TODO(zhangkun83): this error may be recorded by the tracer, and if it's kept in
+              // memory as a map whose key is the method name, this would allow a misbehaving
+              // client to blow up the server in-memory stats storage by sending large number of
+              // distinct unimplemented method
+              // names. (https://github.com/grpc/grpc-java/issues/2285)
+              stream.close(status, new Metadata());
+              context.cancel(null);
+              return;
+            }
+            listener = wrappedHttpListener(
+                method.getMethodDescriptor(),
+                uri,
+                startCall(/* isHttp=*/ true, stream, methodName, method, headers, context, /* statsTraceCtx=*/ null, tag));
+          } catch (RuntimeException e) {
+            stream.close(Status.fromThrowable(e), new Metadata());
+            context.cancel(null);
+            throw e;
+          } catch (Error e) {
+            stream.close(Status.fromThrowable(e), new Metadata());
+            context.cancel(null);
+            throw e;
+          } finally {
+            jumpListener.setListener(listener);
+          }
+
+          // An extremely short deadline may expire before stream.setListener(jumpListener).
+          // This causes NPE as in issue: https://github.com/grpc/grpc-java/issues/6300
+          // Delay of setting cancellationListener to context will fix the issue.
+          final class ServerStreamCancellationListener implements Context.CancellationListener {
+            @Override
+            public void cancelled(Context context) {
+              Status status = statusFromCancelled(context);
+              if (DEADLINE_EXCEEDED.getCode().equals(status.getCode())) {
+                // This should rarely get run, since the client will likely cancel the stream
+                // before the timeout is reached.
+                stream.cancel(status);
+              }
+            }
+          }
+
+          context.addListener(new ServerStreamCancellationListener(), directExecutor());
+        }
+      }
+
+      wrappedExecutor.execute(new StreamCreated());
+    }
 
     @Override
     public void streamCreated(ServerStream stream, String methodName, Metadata headers) {
@@ -553,7 +679,7 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
               context.cancel(null);
               return;
             }
-            listener = startCall(stream, methodName, method, headers, context, statsTraceCtx, tag);
+            listener = startCall(/* isHttp=*/ false, stream, methodName, method, headers, context, statsTraceCtx, tag);
           } catch (RuntimeException e) {
             stream.close(Status.fromThrowable(e), new Metadata());
             context.cancel(null);
@@ -592,7 +718,12 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
         Metadata headers, StatsTraceContext statsTraceCtx) {
       Long timeoutNanos = headers.get(TIMEOUT_KEY);
 
-      Context baseContext = statsTraceCtx.serverFilterContext(rootContext);
+      Context baseContext;
+      if (statsTraceCtx != null) {
+        baseContext = statsTraceCtx.serverFilterContext(rootContext);
+      } else {
+        baseContext = rootContext;
+      }
 
       if (timeoutNanos == null) {
         return baseContext.withCancellation();
@@ -606,16 +737,68 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
       return context;
     }
 
+    private <ReqT, RespT> ServerStreamListener wrappedHttpListener(final MethodDescriptor<ReqT, RespT> method, final URI uri, final ServerStreamListener listener) {
+      return new ServerStreamListener() {
+        @Override
+        public void messagesAvailable(final MessageProducer producer) {
+          listener.messagesAvailable(
+              new MessageProducer() {
+                @Override
+                public InputStream next() {
+                  InputStream message = producer.next();
+                  if (message != null) {
+                    ReqT request = method.decodeHttpRequest(uri, message);
+                    InputStream decodedMessage = method.streamRequest(request);
+                    try {
+                      message.close();
+                    } catch (IOException e) {
+                      // Close any remaining messages
+                      while ((message = producer.next()) != null) {
+                        try {
+                          message.close();
+                        } catch (IOException ioException) {
+                          // just log additional exceptions as we are already going to throw
+                          log.log(Level.WARNING, "Exception closing stream", ioException);
+                        }
+                      }
+                      throw new RuntimeException(e);
+                    }
+                    message = decodedMessage;
+                  }
+                  return message;
+                }
+              });
+        }
+
+        @Override
+        public void halfClosed() {
+          listener.halfClosed();
+        }
+
+        @Override
+        public void closed(Status status) {
+          listener.closed(status);
+        }
+
+        @Override
+        public void onReady() {
+          listener.onReady();
+        }
+      };
+    }
+
     /** Never returns {@code null}. */
-    private <ReqT, RespT> ServerStreamListener startCall(ServerStream stream, String fullMethodName,
+    private <ReqT, RespT> ServerStreamListener startCall(boolean isHttp, ServerStream stream, String fullMethodName,
         ServerMethodDefinition<ReqT, RespT> methodDef, Metadata headers,
         Context.CancellableContext context, StatsTraceContext statsTraceCtx, Tag tag) {
       // TODO(ejona86): should we update fullMethodName to have the canonical path of the method?
-      statsTraceCtx.serverCallStarted(
-          new ServerCallInfoImpl<>(
-              methodDef.getMethodDescriptor(), // notify with original method descriptor
-              stream.getAttributes(),
-              stream.getAuthority()));
+      if (statsTraceCtx != null) {
+        statsTraceCtx.serverCallStarted(
+            new ServerCallInfoImpl<>(
+                methodDef.getMethodDescriptor(), // notify with original method descriptor
+                stream.getAttributes(),
+                stream.getAuthority()));
+      }
       ServerCallHandler<ReqT, RespT> handler = methodDef.getServerCallHandler();
       for (ServerInterceptor interceptor : interceptors) {
         handler = InternalServerInterceptors.interceptCallHandler(interceptor, handler);
@@ -623,10 +806,11 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
       ServerMethodDefinition<ReqT, RespT> interceptedDef = methodDef.withServerCallHandler(handler);
       ServerMethodDefinition<?, ?> wMethodDef = binlog == null
           ? interceptedDef : binlog.wrapMethodDefinition(interceptedDef);
-      return startWrappedCall(fullMethodName, wMethodDef, stream, headers, context, tag);
+      return startWrappedCall(isHttp, fullMethodName, wMethodDef, stream, headers, context, tag);
     }
 
     private <WReqT, WRespT> ServerStreamListener startWrappedCall(
+        boolean isHttp,
         String fullMethodName,
         ServerMethodDefinition<WReqT, WRespT> methodDef,
         ServerStream stream,
@@ -635,6 +819,7 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
         Tag tag) {
 
       ServerCallImpl<WReqT, WRespT> call = new ServerCallImpl<>(
+          isHttp,
           stream,
           methodDef.getMethodDescriptor(),
           headers,

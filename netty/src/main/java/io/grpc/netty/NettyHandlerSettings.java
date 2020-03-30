@@ -40,10 +40,10 @@ final class NettyHandlerSettings {
       handler.setAutoTuneFlowControl(autoFlowControlOn);
       if (handler instanceof NettyClientHandler) {
         clientHandler = handler;
-      } else if (handler instanceof NettyServerHandler) {
+      } else if (handler instanceof NettyHttp2ServerHandler) {
         serverHandler = handler;
       } else {
-        throw new RuntimeException("Expecting NettyClientHandler or NettyServerHandler");
+        throw new RuntimeException("Expecting NettyClientHandler or NettyHttp2ServerHandler");
       }
     }
   }

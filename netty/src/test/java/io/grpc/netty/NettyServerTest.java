@@ -194,7 +194,7 @@ public class NettyServerTest {
     ns.start(new ServerListener() {
       @Override
       public ServerTransportListener transportCreated(ServerTransport transport) {
-        Channel channel = ((NettyServerTransport)transport).channel();
+        Channel channel = ((NettyHttp2ServerTransport)transport).channel();
         WriteBufferWaterMark writeBufferWaterMark = channel.config()
             .getOption(ChannelOption.WRITE_BUFFER_WATER_MARK);
         lowWaterMark.set(writeBufferWaterMark.low());

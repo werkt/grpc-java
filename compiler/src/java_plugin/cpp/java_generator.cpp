@@ -25,6 +25,7 @@
 #include <google/protobuf/compiler/java/java_names.h>
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/descriptor.pb.h>
+#include "google/api/annotations.pb.h"
 #include <google/protobuf/io/printer.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 
@@ -407,6 +408,8 @@ static void PrintMethodFields(
     } else {
       (*vars)["ProtoUtils"] = "io.grpc.protobuf.ProtoUtils";
     }
+    (*vars)["HttpRequest"] = "io.grpc.HttpRequest";
+    (*vars)["HttpRuleUtils"] = "io.grpc.protobuf.HttpRuleUtils";
     p->Print(
         *vars,
         "private static volatile $MethodDescriptor$<$input_type$,\n"
@@ -447,6 +450,44 @@ static void PrintMethodFields(
         "                $input_type$.getDefaultInstance()))\n"
         "            .setResponseMarshaller($ProtoUtils$.marshaller(\n"
         "                $output_type$.getDefaultInstance()))\n");
+
+    bool http = method->options().HasExtension(google::api::http);
+    if (http) {
+      // FIXME selector?
+      google::api::HttpRule rule = method->options().GetExtension(google::api::http);
+      std::string method, pattern;
+      switch (rule.pattern_case()) {
+        case google::api::HttpRule::kGet:
+          method = "GET";
+          pattern = rule.get();
+          break;
+        case google::api::HttpRule::kPut:
+          method = "PUT";
+          pattern = rule.put();
+          break;
+        case google::api::HttpRule::kPost:
+          method = "POST";
+          pattern = rule.post();
+          break;
+        case google::api::HttpRule::kDelete:
+          method = "DELETE";
+          pattern = rule.delete_();
+          break;
+        case google::api::HttpRule::kPatch:
+          method = "PATCH";
+          pattern = rule.patch();
+          break;
+        default:
+          abort();
+      }
+      (*vars)["http_pattern"] = pattern;
+      (*vars)["http_method"] = method;
+      p->Print(
+        *vars,
+        "            .setHttpRequestDecoder($HttpRuleUtils$.decoder(\n"
+        "                $HttpRequest$.Method.$http_method$, \"$http_pattern$\", $input_type$.getDefaultInstance()))\n"
+        "            .setHttpResponseEncoder($HttpRuleUtils$.encoder($output_type$.getDefaultInstance()))");
+    }
 
     (*vars)["proto_method_descriptor_supplier"] = service->name() + "MethodDescriptorSupplier";
     if (flavor == ProtoFlavor::NORMAL) {

@@ -260,6 +260,47 @@ public final class GrpcUtil {
     return !Boolean.TRUE.equals(callOptions.getOption(CALL_OPTIONS_RPC_OWNED_BY_BALANCER));
   }
 
+  public static int grpcCodeToHttpStatus(Status.Code code) {
+    switch (code) {
+      case OK:
+        return HttpURLConnection.HTTP_OK;
+      case CANCELLED:
+        return 499; // Client Closed Request
+      case UNKNOWN:
+        return HttpURLConnection.HTTP_INTERNAL_ERROR;
+      case INVALID_ARGUMENT:
+        return HttpURLConnection.HTTP_BAD_REQUEST;
+      case DEADLINE_EXCEEDED:
+        return HttpURLConnection.HTTP_GATEWAY_TIMEOUT;
+      case NOT_FOUND:
+        return HttpURLConnection.HTTP_NOT_FOUND;
+      case ALREADY_EXISTS:
+        return HttpURLConnection.HTTP_CONFLICT;
+      case PERMISSION_DENIED:
+        return HttpURLConnection.HTTP_FORBIDDEN;
+      case UNAUTHENTICATED:
+        return HttpURLConnection.HTTP_UNAUTHORIZED;
+      case RESOURCE_EXHAUSTED:
+        return 429; // Too Many Requests
+      case FAILED_PRECONDITION:
+        return HttpURLConnection.HTTP_BAD_REQUEST;
+      case ABORTED:
+        return HttpURLConnection.HTTP_CONFLICT;
+      case OUT_OF_RANGE:
+        return HttpURLConnection.HTTP_BAD_REQUEST;
+      case UNIMPLEMENTED:
+        return HttpURLConnection.HTTP_NOT_IMPLEMENTED;
+      case INTERNAL:
+        return HttpURLConnection.HTTP_INTERNAL_ERROR;
+      case UNAVAILABLE:
+        return HttpURLConnection.HTTP_UNAVAILABLE;
+      case DATA_LOSS:
+        return HttpURLConnection.HTTP_INTERNAL_ERROR;
+      default:
+        throw new IllegalStateException("unknown code: " + code);
+    }
+  }
+
   /**
    * Maps HTTP error response status codes to transport codes, as defined in <a
    * href="https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md">
