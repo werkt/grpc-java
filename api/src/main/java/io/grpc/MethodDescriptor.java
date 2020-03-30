@@ -22,6 +22,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.CheckReturnValue;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
@@ -44,6 +45,8 @@ public final class MethodDescriptor<ReqT, RespT> {
   @Nullable private final String serviceName;
   private final Marshaller<ReqT> requestMarshaller;
   private final Marshaller<RespT> responseMarshaller;
+  private final HttpRequestDecoder<ReqT> httpRequestDecoder;
+  private final HttpResponseEncoder<RespT> httpResponseEncoder;
   private final @Nullable Object schemaDescriptor;
   private final boolean idempotent;
   private final boolean safe;
@@ -193,6 +196,35 @@ public final class MethodDescriptor<ReqT, RespT> {
     public T getMessagePrototype();
   }
 
+  public interface HttpRequestDecoder<T>  {
+    boolean matches(String methodName, URI uri);
+
+    T decode(URI uri, InputStream body);
+  }
+
+  public interface HttpResponseEncoder<T>  {
+    InputStream encode(T response);
+  }
+
+  private static final class UnmatchedRequestDecoder<ReqT> implements HttpRequestDecoder<ReqT> {
+    @Override
+    public boolean matches(String methodName, URI uri) {
+      return false;
+    }
+
+    @Override
+    public ReqT decode(URI uri, InputStream body) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
+  private static final class UnimplementedResponseEncoder<RespT> implements HttpResponseEncoder<RespT> {
+    @Override
+    public InputStream encode(RespT response) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
   /**
    * Creates a new {@code MethodDescriptor}.
    *
@@ -209,7 +241,16 @@ public final class MethodDescriptor<ReqT, RespT> {
       Marshaller<RequestT> requestMarshaller,
       Marshaller<ResponseT> responseMarshaller) {
     return new MethodDescriptor<>(
-        type, fullMethodName, requestMarshaller, responseMarshaller, null, false, false, false);
+        type,
+        fullMethodName,
+        requestMarshaller,
+        responseMarshaller,
+        new UnmatchedRequestDecoder<RequestT>(),
+        new UnimplementedResponseEncoder<ResponseT>(),
+        null,
+        false,
+        false,
+        false);
   }
 
   private MethodDescriptor(
@@ -217,6 +258,8 @@ public final class MethodDescriptor<ReqT, RespT> {
       String fullMethodName,
       Marshaller<ReqT> requestMarshaller,
       Marshaller<RespT> responseMarshaller,
+      HttpRequestDecoder<ReqT> httpRequestDecoder,
+      HttpResponseEncoder<RespT> httpResponseEncoder,
       Object schemaDescriptor,
       boolean idempotent,
       boolean safe,
@@ -227,6 +270,8 @@ public final class MethodDescriptor<ReqT, RespT> {
     this.serviceName = extractFullServiceName(fullMethodName);
     this.requestMarshaller = Preconditions.checkNotNull(requestMarshaller, "requestMarshaller");
     this.responseMarshaller = Preconditions.checkNotNull(responseMarshaller, "responseMarshaller");
+    this.httpRequestDecoder = Preconditions.checkNotNull(httpRequestDecoder, "httpRequestDecoder");
+    this.httpResponseEncoder = Preconditions.checkNotNull(httpResponseEncoder, "httpResponseEncoder");
     this.schemaDescriptor = schemaDescriptor;
     this.idempotent = idempotent;
     this.safe = safe;
@@ -317,6 +362,18 @@ public final class MethodDescriptor<ReqT, RespT> {
    */
   public InputStream streamResponse(RespT response) {
     return responseMarshaller.stream(response);
+  }
+
+  public boolean matchesHttpRequest(String methodName, URI uri) {
+    return httpRequestDecoder.matches(methodName, uri);
+  }
+
+  public ReqT decodeHttpRequest(URI uri, InputStream input) {
+    return httpRequestDecoder.decode(uri, input);
+  }
+
+  public InputStream streamHttpResponse(RespT response) {
+    return httpResponseEncoder.encode(response);
   }
 
   /**
@@ -484,6 +541,8 @@ public final class MethodDescriptor<ReqT, RespT> {
 
     private Marshaller<ReqT> requestMarshaller;
     private Marshaller<RespT> responseMarshaller;
+    private HttpRequestDecoder<ReqT> httpRequestDecoder = new UnmatchedRequestDecoder<ReqT>();
+    private HttpResponseEncoder<RespT> httpResponseEncoder = new UnimplementedResponseEncoder<RespT>();
     private MethodType type;
     private String fullMethodName;
     private boolean idempotent;
@@ -512,6 +571,16 @@ public final class MethodDescriptor<ReqT, RespT> {
      */
     public Builder<ReqT, RespT> setResponseMarshaller(Marshaller<RespT> responseMarshaller) {
       this.responseMarshaller = responseMarshaller;
+      return this;
+    }
+
+    public Builder<ReqT, RespT> setHttpRequestDecoder(HttpRequestDecoder<ReqT> httpRequestDecoder) {
+      this.httpRequestDecoder = httpRequestDecoder;
+      return this;
+    }
+
+    public Builder<ReqT, RespT> setHttpResponseEncoder(HttpResponseEncoder<RespT> httpResponseEncoder) {
+      this.httpResponseEncoder = httpResponseEncoder;
       return this;
     }
 
@@ -605,6 +674,8 @@ public final class MethodDescriptor<ReqT, RespT> {
           fullMethodName,
           requestMarshaller,
           responseMarshaller,
+          httpRequestDecoder,
+          httpResponseEncoder,
           schemaDescriptor,
           idempotent,
           safe,
@@ -622,6 +693,8 @@ public final class MethodDescriptor<ReqT, RespT> {
       .add("sampledToLocalTracing", sampledToLocalTracing)
       .add("requestMarshaller", requestMarshaller)
       .add("responseMarshaller", responseMarshaller)
+      .add("httpRequestDecoder", httpRequestDecoder)
+      .add("httpResponseEncoder", httpResponseEncoder)
       .add("schemaDescriptor", schemaDescriptor)
       .omitNullValues()
       .toString();

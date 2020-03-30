@@ -58,6 +58,8 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
   @VisibleForTesting
   static final String MISSING_RESPONSE = "Completed without a response";
 
+  // should we make the stream see the method descriptor and just pick??
+  private final boolean isHttp;
   private final ServerStream stream;
   private final MethodDescriptor<ReqT, RespT> method;
   private final Tag tag;
@@ -74,10 +76,11 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
   private Compressor compressor;
   private boolean messageSent;
 
-  ServerCallImpl(ServerStream stream, MethodDescriptor<ReqT, RespT> method,
+  ServerCallImpl(boolean isHttp, ServerStream stream, MethodDescriptor<ReqT, RespT> method,
       Metadata inboundHeaders, Context.CancellableContext context,
       DecompressorRegistry decompressorRegistry, CompressorRegistry compressorRegistry,
       CallTracer serverCallTracer, Tag tag) {
+    this.isHttp = isHttp;
     this.stream = stream;
     this.method = method;
     this.context = context;
@@ -164,7 +167,7 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
 
     messageSent = true;
     try {
-      InputStream resp = method.streamResponse(message);
+      InputStream resp = isHttp ? method.streamHttpResponse(message) : method.streamResponse(message);
       stream.writeMessage(resp);
       if (!getMethodDescriptor().getType().serverSendsOneMessage()) {
         stream.flush();

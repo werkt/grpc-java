@@ -16,6 +16,7 @@
 
 package io.grpc;
 
+import java.net.URI;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -59,4 +60,12 @@ public abstract class HandlerRegistry {
     return lookupMethod(methodName, null);
   }
 
+  @Nullable
+  public abstract ServerMethodDefinition<?, ?> lookupHttpMethod(
+      String methodName, URI uri, @Nullable String authority);
+
+  @Nullable
+  public final ServerMethodDefinition<?, ?> lookupHttpMethod(String methodName, URI uri) {
+    return lookupHttpMethod(methodName, uri, null);
+  }
 }

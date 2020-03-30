@@ -56,6 +56,7 @@ import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2FlowController;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Stream;
+import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.util.AsciiString;
 import io.netty.util.NettyRuntime;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -264,6 +265,18 @@ class Utils {
       headerValues[i++] = bytes(entry.getValue());
     }
     return toRawSerializedHeaders(headerValues);
+  }
+
+  public static Metadata convertHeaders(HttpHeaders httpHeaders) {
+    // The Netty AsciiString class is really just a wrapper around a byte[] and supports
+    // arbitrary binary data, not just ASCII.
+    byte[][] headerValues = new byte[httpHeaders.size() * 2][];
+    int i = 0;
+    for (Map.Entry<? extends CharSequence, ? extends CharSequence> entry : httpHeaders) {
+      headerValues[i++] = bytes(entry.getKey());
+      headerValues[i++] = bytes(entry.getValue());
+    }
+    return InternalMetadata.newMetadata(toRawSerializedHeaders(headerValues));
   }
 
   private static byte[] bytes(CharSequence seq) {

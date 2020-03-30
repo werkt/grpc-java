@@ -42,6 +42,7 @@ import io.grpc.ServerTransportFilter;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -327,6 +328,13 @@ public final class ServerImplBuilder extends ServerBuilder<ServerImplBuilder> {
     @Override
     public ServerMethodDefinition<?, ?> lookupMethod(
         String methodName, @Nullable String authority) {
+      return null;
+    }
+
+    @Nullable
+    @Override
+    public ServerMethodDefinition<?, ?> lookupHttpMethod(
+        String methodName, URI uri, @Nullable String authority) {
       return null;
     }
   }

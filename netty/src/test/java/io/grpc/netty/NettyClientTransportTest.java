@@ -1330,7 +1330,7 @@ public class NettyClientTransportTest {
   }
 
   private final class EchoServerListener implements ServerListener {
-    final List<NettyServerTransport> transports = new ArrayList<>();
+    final List<NettyHttp2ServerTransport> transports = new ArrayList<>();
     final List<EchoServerStreamListener> streamListeners =
             Collections.synchronizedList(new ArrayList<EchoServerStreamListener>());
     Metadata responseHeaders;
@@ -1345,7 +1345,7 @@ public class NettyClientTransportTest {
 
     @Override
     public ServerTransportListener transportCreated(final ServerTransport transport) {
-      transports.add((NettyServerTransport) transport);
+      transports.add((NettyHttp2ServerTransport) transport);
       return new ServerTransportListener() {
         @Override
         public void streamCreated(ServerStream stream, String method, Metadata headers) {

@@ -114,8 +114,8 @@ import javax.annotation.Nullable;
  * Server-side Netty handler for GRPC processing. All event handlers are executed entirely within
  * the context of the Netty Channel thread.
  */
-class NettyServerHandler extends AbstractNettyHandler {
-  private static final Logger logger = Logger.getLogger(NettyServerHandler.class.getName());
+class NettyHttp2ServerHandler extends AbstractNettyHandler {
+  private static final Logger logger = Logger.getLogger(NettyHttp2ServerHandler.class.getName());
   private static final long KEEPALIVE_PING = 0xDEADL;
   @VisibleForTesting
   static final long GRACEFUL_SHUTDOWN_PING = 0x97ACEF001L;
@@ -154,7 +154,7 @@ class NettyServerHandler extends AbstractNettyHandler {
   @CheckForNull
   private GracefulShutdown gracefulShutdown;
 
-  static NettyServerHandler newHandler(
+  static NettyHttp2ServerHandler newHandler(
       ServerTransportListener transportListener,
       ChannelPromise channelUnused,
       List<? extends ServerStreamTracer.Factory> streamTracerFactories,
@@ -177,7 +177,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       Attributes eagAttributes) {
     Preconditions.checkArgument(maxHeaderListSize > 0, "maxHeaderListSize must be positive: %s",
         maxHeaderListSize);
-    Http2FrameLogger frameLogger = new Http2FrameLogger(LogLevel.DEBUG, NettyServerHandler.class);
+    Http2FrameLogger frameLogger = new Http2FrameLogger(LogLevel.DEBUG, NettyHttp2ServerHandler.class);
     Http2HeadersDecoder headersDecoder = new GrpcHttp2ServerHeadersDecoder(maxHeaderListSize);
     Http2FrameReader frameReader = new Http2InboundFrameLogger(
         new DefaultHttp2FrameReader(headersDecoder), frameLogger);
@@ -211,7 +211,7 @@ class NettyServerHandler extends AbstractNettyHandler {
         Ticker.systemTicker());
   }
 
-  static NettyServerHandler newHandler(
+  static NettyHttp2ServerHandler newHandler(
       ChannelPromise channelUnused,
       Http2FrameReader frameReader,
       Http2FrameWriter frameWriter,
@@ -277,7 +277,7 @@ class NettyServerHandler extends AbstractNettyHandler {
     settings.maxConcurrentStreams(maxStreams);
     settings.maxHeaderListSize(maxHeaderListSize);
 
-    return new NettyServerHandler(
+    return new NettyHttp2ServerHandler(
         channelUnused,
         connection,
         transportListener,
@@ -297,7 +297,7 @@ class NettyServerHandler extends AbstractNettyHandler {
         eagAttributes, ticker);
   }
 
-  private NettyServerHandler(
+  private NettyHttp2ServerHandler(
       ChannelPromise channelUnused,
       final Http2Connection connection,
       ServerTransportListener transportListener,
@@ -940,7 +940,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onDataRead(streamId, data, padding, endOfStream);
+      NettyHttp2ServerHandler.this.onDataRead(streamId, data, padding, endOfStream);
       return padding;
     }
 
@@ -956,9 +956,9 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onHeadersRead(ctx, streamId, headers);
+      NettyHttp2ServerHandler.this.onHeadersRead(ctx, streamId, headers);
       if (endStream) {
-        NettyServerHandler.this.onDataRead(streamId, Unpooled.EMPTY_BUFFER, 0, endStream);
+        NettyHttp2ServerHandler.this.onDataRead(streamId, Unpooled.EMPTY_BUFFER, 0, endStream);
       }
     }
 
@@ -968,7 +968,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       if (keepAliveManager != null) {
         keepAliveManager.onDataReceived();
       }
-      NettyServerHandler.this.onRstStreamRead(streamId, errorCode);
+      NettyHttp2ServerHandler.this.onRstStreamRead(streamId, errorCode);
     }
 
     @Override
@@ -1121,7 +1121,7 @@ class NettyServerHandler extends AbstractNettyHandler {
       long overriddenGraceTime = graceTimeOverrideMillis(savedGracefulShutdownTimeMillis);
       try {
         gracefulShutdownTimeoutMillis(overriddenGraceTime);
-        NettyServerHandler.super.close(ctx, ctx.newPromise());
+        NettyHttp2ServerHandler.super.close(ctx, ctx.newPromise());
       } catch (Exception e) {
         onError(ctx, /* outbound= */ true, e);
       } finally {

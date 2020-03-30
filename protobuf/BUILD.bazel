@@ -11,6 +11,7 @@ java_library(
         "//api",
         "//protobuf-lite",
         "@com_google_protobuf//:protobuf_java",
+        "@com_google_protobuf//:protobuf_java_util",
         artifact("com.google.api.grpc:proto-google-common-protos"),
         artifact("com.google.code.findbugs:jsr305"),
         artifact("com.google.errorprone:error_prone_annotations"),
