@@ -17,6 +17,7 @@
 package io.grpc.internal;
 
 import io.grpc.HandlerRegistry;
+import io.grpc.HttpRequest;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
 import java.net.URI;
@@ -56,11 +57,11 @@ final class InternalHandlerRegistry extends HandlerRegistry {
 
   @Nullable
   @Override
-  public ServerMethodDefinition<?, ?> lookupHttpMethod(String methodName, URI uri, @Nullable String authority) {
+  public ServerMethodDefinition<?, ?> lookupHttpMethod(HttpRequest.Method requestMethod, URI uri, @Nullable String authority) {
     // TODO (carl-mastrangelo): honor authority header.
     // hax for now - maybe index later
     for (ServerMethodDefinition<?, ?> method : methods.values()) {
-      if (method.getMethodDescriptor().matchesHttpRequest(methodName, uri)) {
+      if (method.getMethodDescriptor().matchesHttpRequest(requestMethod, uri)) {
         return method;
       }
     }

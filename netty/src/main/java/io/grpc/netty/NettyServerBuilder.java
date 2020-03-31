@@ -31,6 +31,7 @@ import com.google.errorprone.annotations.InlineMe;
 import io.grpc.Attributes;
 import io.grpc.ExperimentalApi;
 import io.grpc.ForwardingServerBuilder;
+import io.grpc.HttpRequest;
 import io.grpc.Internal;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerCredentials;
@@ -116,6 +117,7 @@ public final class NettyServerBuilder extends ForwardingServerBuilder<NettyServe
   private int maxRstCount;
   private long maxRstPeriodNanos;
   private Attributes eagAttributes = Attributes.EMPTY;
+  private Map<HttpHandlerKey, HttpHandler> httpHandlers = new HashMap<>();
 
   /**
    * Creates a server builder that will bind to the given port.
@@ -737,7 +739,8 @@ public final class NettyServerBuilder extends ForwardingServerBuilder<NettyServe
         maxRstCount,
         maxRstPeriodNanos,
         eagAttributes,
-        this.serverImplBuilder.getChannelz());
+        this.serverImplBuilder.getChannelz(),
+        httpHandlers);
   }
 
   @VisibleForTesting
@@ -789,6 +792,11 @@ public final class NettyServerBuilder extends ForwardingServerBuilder<NettyServe
       throw new RuntimeException(e);
     }
     protocolNegotiatorFactory = ProtocolNegotiators.serverTlsFactory(sslContext);
+    return this;
+  }
+
+  public NettyServerBuilder addHttpHandler(HttpRequest.Method method, String pattern, HttpHandler handler) {
+    httpHandlers.put(new HttpHandlerKey(method, pattern), handler);
     return this;
   }
 }

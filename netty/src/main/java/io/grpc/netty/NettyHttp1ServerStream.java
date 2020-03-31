@@ -119,9 +119,7 @@ class NettyHttp1ServerStream implements ServerStream {
     // abstractServerStreamSink().writeHeaders(headers);
   }
 
-  @Override
-  public void close(Status status, Metadata trailers) {
-    Preconditions.checkNotNull(status, "status");
+  void close(HttpResponseStatus status, Metadata trailers) {
     Preconditions.checkNotNull(trailers, "trailers");
     if (!outboundClosed) {
       outboundClosed = true;
@@ -135,6 +133,13 @@ class NettyHttp1ServerStream implements ServerStream {
       // abstractServerStreamSink().writeTrailers(trailers, headersSent, status);
       state.writeTrailers(trailers, headersSent, status);
     }
+  }
+
+  @Override
+  public void close(Status status, Metadata trailers) {
+    Preconditions.checkNotNull(status, "status");
+    int httpStatus = GrpcUtil.grpcCodeToHttpStatus(status.getCode());
+    close(HttpResponseStatus.valueOf(httpStatus), trailers);
   }
 
   @Override
@@ -178,6 +183,10 @@ class NettyHttp1ServerStream implements ServerStream {
   @Override
   public int streamId() {
     return streamId;
+  }
+
+  public HttpRequest request() {
+    return state.request();
   }
 
   /*
@@ -301,7 +310,7 @@ class NettyHttp1ServerStream implements ServerStream {
 
     /** The status that the application used to close this stream. */
     @Nullable
-    private Status closedStatus;
+    private HttpResponseStatus closedStatus = null;
     private Metadata responseHeaders;
     private ServerStreamListener listener;
     private Decompressor decompressor;
@@ -367,7 +376,7 @@ class NettyHttp1ServerStream implements ServerStream {
     /**
      * Stores the {@code Status} that the application used to close this stream.
      */
-    private void setClosedStatus(Status status) {
+    private void setClosedStatus(HttpResponseStatus status) {
       Preconditions.checkState(closedStatus == null, "closedStatus can only be set once");
       this.closedStatus = status;
       // this is our end event, but http sucks, so....
@@ -382,7 +391,7 @@ class NettyHttp1ServerStream implements ServerStream {
       }
     }
 
-    private void writeTrailers(Metadata trailers, boolean headersSent, Status status) {
+    private void writeTrailers(Metadata trailers, boolean headersSent, HttpResponseStatus status) {
       /* technically shouldn't flush, should just schedule one */
       /* maybe do something else with the trailers if we also have headers? */
       if (!headersSent) {
@@ -400,7 +409,6 @@ class NettyHttp1ServerStream implements ServerStream {
       System.out.println("flushing...");
       if (closedStatus != null) {
         flushRequest();
-        closedStatus = null;
       } else {
         shouldFlush = true;
       }
@@ -414,11 +422,10 @@ class NettyHttp1ServerStream implements ServerStream {
       }
 
       /* need to detect if we've flushed already */
-      HttpResponseStatus httpStatus = HttpResponseStatus.valueOf(
-          GrpcUtil.grpcCodeToHttpStatus(closedStatus.getCode()));
+      Preconditions.checkState(closedStatus != null, "transportState was not closed");
       FullHttpResponse response = new DefaultFullHttpResponse(
           request.protocolVersion(),
-          httpStatus,
+          closedStatus,
           Unpooled.wrappedBuffer(ByteStreams.toByteArray(responseContent)));
 
       // TODO set headers from response/trailers
@@ -493,6 +500,10 @@ class NettyHttp1ServerStream implements ServerStream {
       if (doNotify) {
         listener.onReady();
       }
+    }
+
+    private HttpRequest request() {
+      return request;
     }
   }
 }

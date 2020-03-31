@@ -62,10 +62,10 @@ public abstract class HandlerRegistry {
 
   @Nullable
   public abstract ServerMethodDefinition<?, ?> lookupHttpMethod(
-      String methodName, URI uri, @Nullable String authority);
+      HttpRequest.Method requestMethod, URI uri, @Nullable String authority);
 
   @Nullable
-  public final ServerMethodDefinition<?, ?> lookupHttpMethod(String methodName, URI uri) {
-    return lookupHttpMethod(methodName, uri, null);
+  public final ServerMethodDefinition<?, ?> lookupHttpMethod(HttpRequest.Method requestMethod, URI uri) {
+    return lookupHttpMethod(requestMethod, uri, null);
   }
 }

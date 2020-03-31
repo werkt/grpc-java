@@ -25,6 +25,7 @@ import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
 import static io.netty.handler.codec.http.HttpHeaderValues.TEXT_PLAIN;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 
+import io.grpc.HttpRequest.Method;
 import io.grpc.Metadata;
 import io.grpc.ServerStreamTracer;
 import io.grpc.internal.ServerStream;
@@ -104,13 +105,15 @@ class NettyHttp1ServerHandler extends SimpleChannelInboundHandler<HttpObject> {
           transportTracer,
           request);
 
-      ServerStream stream = new NettyHttp1ServerStream(
+      NettyHttp1ServerStream stream = new NettyHttp1ServerStream(
           ctx.channel(),
           state,
           statsTraceCtx,
           transportTracer);
       try {
-        transportListener.httpStreamCreated(stream, request.method().name(), new URI(request.uri()), metadata);
+        URI uri = new URI(request.uri());
+        Method method = io.grpc.HttpRequest.parseMethod(request.method().name());
+        transportListener.httpStreamCreated(stream, method, uri, metadata);
       } catch (URISyntaxException e) {
         // probably shouldn't happen
         throw new RuntimeException(e);

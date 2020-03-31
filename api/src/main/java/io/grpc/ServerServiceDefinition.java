@@ -75,9 +75,9 @@ public final class ServerServiceDefinition {
 
   @Internal
   @Nullable
-  public ServerMethodDefinition<?, ?> getHttpMethod(String methodName, URI uri) {
+  public ServerMethodDefinition<?, ?> getHttpMethod(HttpRequest.Method requestMethod, URI uri) {
     for (ServerMethodDefinition<?, ?> method : methods.values()) {
-      if (method.getMethodDescriptor().matchesHttpRequest(methodName, uri)) {
+      if (method.getMethodDescriptor().matchesHttpRequest(requestMethod, uri)) {
         return method;
       }
     }
