@@ -19,6 +19,7 @@ package io.grpc.util;
 import io.grpc.BindableService;
 import io.grpc.ExperimentalApi;
 import io.grpc.HandlerRegistry;
+import io.grpc.HttpRequest;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
@@ -105,9 +106,9 @@ public final class MutableHandlerRegistry extends HandlerRegistry {
    */
   @Override
   @Nullable
-  public ServerMethodDefinition<?, ?> lookupHttpMethod(String methodName, URI uri, @Nullable String authority) {
+  public ServerMethodDefinition<?, ?> lookupHttpMethod(HttpRequest.Method requestMethod, URI uri, @Nullable String authority) {
     for (ServerServiceDefinition service : services.values()) {
-      ServerMethodDefinition<?, ?> method = service.getHttpMethod(methodName, uri);
+      ServerMethodDefinition<?, ?> method = service.getHttpMethod(requestMethod, uri);
       if (method != null) {
         return method;
       }

@@ -17,6 +17,7 @@
 package io.grpc.internal;
 
 import io.grpc.Attributes;
+import io.grpc.HttpRequest.Method;
 import io.grpc.Metadata;
 import java.net.URI;
 
@@ -38,11 +39,11 @@ public interface ServerTransportListener {
    * Called when a new http stream was created by the remote client.
    *
    * @param stream the newly created stream.
-   * @param method the fully qualified method name being called on the server.
+   * @param method the method of the HTTP 1.x request
    * @param uri the uri of the HTTP 1.x request
    * @param headers containing metadata for the call.
    */
-  void httpStreamCreated(ServerStream stream, String method, URI uri, Metadata headers);
+  void httpStreamCreated(ServerStream stream, Method method, URI uri, Metadata headers);
 
   /**
    * The transport has finished all handshakes and is ready to process streams.

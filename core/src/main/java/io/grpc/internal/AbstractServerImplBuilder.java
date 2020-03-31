@@ -28,6 +28,7 @@ import io.grpc.Context;
 import io.grpc.Deadline;
 import io.grpc.DecompressorRegistry;
 import io.grpc.HandlerRegistry;
+import io.grpc.HttpRequest;
 import io.grpc.InternalChannelz;
 import io.grpc.InternalNotifyOnServerBuild;
 import io.grpc.Server;
@@ -336,7 +337,7 @@ public abstract class AbstractServerImplBuilder<T extends AbstractServerImplBuil
     @Nullable
     @Override
     public ServerMethodDefinition<?, ?> lookupHttpMethod(
-        String methodName, URI uri, @Nullable String authority) {
+        HttpRequest.Method method, URI uri, @Nullable String authority) {
       return null;
     }
   }

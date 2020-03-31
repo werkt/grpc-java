@@ -199,7 +199,7 @@ public final class MethodDescriptor<ReqT, RespT> {
   }
 
   public interface HttpRequestDecoder<T>  {
-    boolean matches(String methodName, URI uri);
+    boolean matches(HttpRequest.Method requestMethod, URI uri);
 
     T decode(URI uri, InputStream body);
   }
@@ -210,7 +210,7 @@ public final class MethodDescriptor<ReqT, RespT> {
 
   private static final class UnmatchedRequestDecoder<ReqT> implements HttpRequestDecoder<ReqT> {
     @Override
-    public boolean matches(String methodName, URI uri) {
+    public boolean matches(HttpRequest.Method requestMethod, URI uri) {
       return false;
     }
 
@@ -355,8 +355,8 @@ public final class MethodDescriptor<ReqT, RespT> {
     return responseMarshaller.stream(response);
   }
 
-  public boolean matchesHttpRequest(String methodName, URI uri) {
-    return httpRequestDecoder.matches(methodName, uri);
+  public boolean matchesHttpRequest(HttpRequest.Method requestMethod, URI uri) {
+    return httpRequestDecoder.matches(requestMethod, uri);
   }
 
   public ReqT decodeHttpRequest(URI uri, InputStream input) {

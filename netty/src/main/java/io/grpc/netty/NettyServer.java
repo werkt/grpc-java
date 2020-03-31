@@ -26,15 +26,20 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import io.grpc.Attributes;
+import io.grpc.HttpRequest.Method;
 import io.grpc.InternalChannelz;
 import io.grpc.InternalChannelz.SocketStats;
 import io.grpc.InternalInstrumented;
 import io.grpc.InternalLogId;
 import io.grpc.InternalWithLogId;
+import io.grpc.Metadata;
 import io.grpc.ServerStreamTracer;
 import io.grpc.internal.InternalServer;
 import io.grpc.internal.ObjectPool;
 import io.grpc.internal.ServerListener;
+import io.grpc.internal.ServerStream;
+import io.grpc.internal.ServerTransport;
 import io.grpc.internal.ServerTransportListener;
 import io.grpc.internal.TransportTracer;
 import io.netty.bootstrap.ServerBootstrap;
@@ -47,17 +52,20 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.ServerChannel;
+import io.netty.handler.codec.http.HttpRequest;
 import io.netty.util.AbstractReferenceCounted;
 import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.annotation.Nullable;
 
 /**
  * Netty-based server implementation.
@@ -93,6 +101,7 @@ class NettyServer implements InternalServer, InternalWithLogId {
   private final List<? extends ServerStreamTracer.Factory> streamTracerFactories;
   private final TransportTracer.Factory transportTracerFactory;
   private final InternalChannelz channelz;
+  private Map<HttpHandlerKey, HttpHandler> httpHandlers;
   private final ServerTransportFactory http2ServerTransportFactory = new ServerTransportFactory() {
     @Override
     public NettyServerTransport create(Channel ch, ChannelPromise channelDone) {
@@ -151,7 +160,8 @@ class NettyServer implements InternalServer, InternalWithLogId {
       long maxConnectionIdleInNanos,
       long maxConnectionAgeInNanos, long maxConnectionAgeGraceInNanos,
       boolean permitKeepAliveWithoutCalls, long permitKeepAliveTimeInNanos,
-      InternalChannelz channelz) {
+      InternalChannelz channelz,
+      Map<HttpHandlerKey, HttpHandler> httpHandlers) {
     this.address = address;
     this.channelFactory = checkNotNull(channelFactory, "channelFactory");
     checkNotNull(channelOptions, "channelOptions");
@@ -178,6 +188,7 @@ class NettyServer implements InternalServer, InternalWithLogId {
     this.channelz = Preconditions.checkNotNull(channelz);
     this.logId =
         InternalLogId.allocate(getClass(), address != null ? address.toString() : "No address");
+    this.httpHandlers = Preconditions.checkNotNull(httpHandlers);
   }
 
   @Override
@@ -192,6 +203,53 @@ class NettyServer implements InternalServer, InternalWithLogId {
   @Override
   public InternalInstrumented<SocketStats> getListenSocketStats() {
     return listenSocketStats;
+  }
+
+  private ServerListener httpHandlerListener() {
+    return new ServerListener() {
+      @Override
+      public ServerTransportListener transportCreated(ServerTransport transport) {
+        return httpHandlerTransportListener(listener.transportCreated(transport));
+      }
+
+      @Override
+      public void serverShutdown() {
+        listener.serverShutdown();
+      }
+    };
+  }
+
+  private ServerTransportListener httpHandlerTransportListener(
+      final ServerTransportListener transportListener) {
+    return new ServerTransportListener() {
+      @Override
+      public void streamCreated(ServerStream stream, String method, Metadata headers) {
+        transportListener.streamCreated(stream, method, headers);
+      }
+
+      @Override
+      public void httpStreamCreated(ServerStream stream, Method method, URI uri, Metadata headers) {
+        HttpHandler httpHandler = lookupHttpHandler(method, uri);
+        Preconditions.checkState(stream instanceof NettyHttp1ServerStream);
+        NettyHttp1ServerStream httpStream = (NettyHttp1ServerStream) stream;
+        HttpRequest request = httpStream.request();
+        if (httpHandler != null && httpHandler.handles(request, headers)) {
+          httpHandler.handle(request, headers, new NettyHttpResponseObserver(httpStream));
+        } else {
+          transportListener.httpStreamCreated(stream, method, uri, headers);
+        }
+      }
+
+      @Override
+      public Attributes transportReady(Attributes attributes) {
+        return transportListener.transportReady(attributes);
+      }
+
+      @Override
+      public void transportTerminated() {
+        transportListener.transportTerminated();
+      }
+    };
   }
 
   @Override
@@ -255,7 +313,7 @@ class NettyServer implements InternalServer, InternalWithLogId {
           }
         }
 
-        transport.start(listener, transportListener);
+        transport.start(httpHandlerListener(), transportListener);
         ChannelFutureListener loopReleaser = new LoopReleaser();
         channelDone.addListener(loopReleaser);
         ch.closeFuture().addListener(loopReleaser);
@@ -325,6 +383,12 @@ class NettyServer implements InternalServer, InternalWithLogId {
         .add("logId", logId.getId())
         .add("address", address)
         .toString();
+  }
+
+  @Nullable
+  HttpHandler lookupHttpHandler(Method method, URI uri) {
+    return httpHandlers.get(new HttpHandlerKey(method, uri.getPath()));
+    // do more exotic things later
   }
 
   class SharedResourceReferenceCounter extends AbstractReferenceCounted {

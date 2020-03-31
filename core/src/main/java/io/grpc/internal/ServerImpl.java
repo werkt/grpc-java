@@ -38,6 +38,7 @@ import io.grpc.Deadline;
 import io.grpc.Decompressor;
 import io.grpc.DecompressorRegistry;
 import io.grpc.HandlerRegistry;
+import io.grpc.HttpRequest.Method;
 import io.grpc.InternalChannelz;
 import io.grpc.InternalChannelz.ServerStats;
 import io.grpc.InternalChannelz.SocketStats;
@@ -470,18 +471,18 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
     }
 
     @Override
-    public void httpStreamCreated(ServerStream stream, String methodName, URI uri, Metadata headers) {
-      Tag tag = PerfMark.createTag(methodName, stream.streamId());
+    public void httpStreamCreated(ServerStream stream, Method requestMethod, URI uri, Metadata headers) {
+      Tag tag = PerfMark.createTag(String.format("%s %s", requestMethod, uri), stream.streamId());
       PerfMark.startTask("ServerTransportListener.httpStreamCreated", tag);
       try {
-        httpStreamCreatedInternal(stream, methodName, uri, headers, tag);
+        httpStreamCreatedInternal(stream, requestMethod, uri, headers, tag);
       } finally {
         PerfMark.stopTask("ServerTransportListener.httpStreamCreated", tag);
       }
     }
 
     private void httpStreamCreatedInternal(
-        final ServerStream stream, final String methodName, final URI uri, final Metadata headers, final Tag tag) {
+        final ServerStream stream, final Method requestMethod, final URI uri, final Metadata headers, final Tag tag) {
 
       if (headers.containsKey(MESSAGE_ENCODING_KEY)) {
         String encoding = headers.get(MESSAGE_ENCODING_KEY);
@@ -540,13 +541,14 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
         private void runInternal() {
           ServerStreamListener listener = NOOP_LISTENER;
           try {
-            ServerMethodDefinition<?, ?> method = registry.lookupHttpMethod(methodName, uri);
+            ServerMethodDefinition<?, ?> method = registry.lookupHttpMethod(requestMethod, uri);
             if (method == null) {
-              method = fallbackRegistry.lookupHttpMethod(methodName, uri, stream.getAuthority());
+              method = fallbackRegistry.lookupHttpMethod(requestMethod, uri, stream.getAuthority());
             }
+            String methodId = requestMethod + " " + uri;
             if (method == null) {
               Status status = Status.UNIMPLEMENTED.withDescription(
-                  "Method not found: " + methodName + " " + uri);
+                  "Method not found: " + methodId);
               // TODO(zhangkun83): this error may be recorded by the tracer, and if it's kept in
               // memory as a map whose key is the method name, this would allow a misbehaving
               // client to blow up the server in-memory stats storage by sending large number of
@@ -559,7 +561,7 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
             listener = wrappedHttpListener(
                 method.getMethodDescriptor(),
                 uri,
-                startCall(/* isHttp=*/ true, stream, methodName, method, headers, context, /* statsTraceCtx=*/ null, tag));
+                startCall(/* isHttp=*/ true, stream, methodId, method, headers, context, /* statsTraceCtx=*/ null, tag));
           } catch (RuntimeException e) {
             stream.close(Status.fromThrowable(e), new Metadata());
             context.cancel(null);

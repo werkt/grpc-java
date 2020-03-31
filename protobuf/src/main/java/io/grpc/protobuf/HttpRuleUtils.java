@@ -28,8 +28,8 @@ public final class HttpRuleUtils {
       RulePattern rulePattern = RulePattern.parse(pattern);
 
       @Override
-      public boolean matches(String methodName, URI uri) {
-        return HttpRequest.parseMethod(methodName) == method
+      public boolean matches(HttpRequest.Method requestMethod, URI uri) {
+        return requestMethod == method
             && rulePattern.matches(uri);
       }
 

@@ -27,6 +27,7 @@ import static io.grpc.internal.GrpcUtil.SERVER_KEEPALIVE_TIME_NANOS_DISABLED;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.grpc.ExperimentalApi;
+import io.grpc.HttpRequest;
 import io.grpc.Internal;
 import io.grpc.ServerStreamTracer;
 import io.grpc.internal.AbstractServerImplBuilder;
@@ -103,6 +104,7 @@ public final class NettyServerBuilder extends AbstractServerImplBuilder<NettySer
   private long maxConnectionAgeGraceInNanos = MAX_CONNECTION_AGE_GRACE_NANOS_INFINITE;
   private boolean permitKeepAliveWithoutCalls;
   private long permitKeepAliveTimeInNanos = TimeUnit.MINUTES.toNanos(5);
+  private Map<HttpHandlerKey, HttpHandler> httpHandlers = new HashMap<>();
 
   /**
    * Creates a server builder that will bind to the given port.
@@ -554,7 +556,7 @@ public final class NettyServerBuilder extends AbstractServerImplBuilder<NettySer
           getTransportTracerFactory(), maxConcurrentCallsPerConnection, flowControlWindow,
           maxMessageSize, maxHeaderListSize, keepAliveTimeInNanos, keepAliveTimeoutInNanos,
           maxConnectionIdleInNanos, maxConnectionAgeInNanos, maxConnectionAgeGraceInNanos,
-          permitKeepAliveWithoutCalls, permitKeepAliveTimeInNanos, getChannelz());
+          permitKeepAliveWithoutCalls, permitKeepAliveTimeInNanos, getChannelz(), httpHandlers);
       transportServers.add(transportServer);
     }
     return Collections.unmodifiableList(transportServers);
@@ -593,6 +595,11 @@ public final class NettyServerBuilder extends AbstractServerImplBuilder<NettySer
       // This should likely be some other, easier to catch exception.
       throw new RuntimeException(e);
     }
+    return this;
+  }
+
+  public NettyServerBuilder addHttpHandler(HttpRequest.Method method, String pattern, HttpHandler handler) {
+    httpHandlers.put(new HttpHandlerKey(method, pattern), handler);
     return this;
   }
 }
