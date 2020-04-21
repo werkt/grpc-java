@@ -17,13 +17,7 @@
 package io.grpc.netty;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static io.netty.handler.codec.http.HttpHeaderNames.CONNECTION;
-import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
-import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
-import static io.netty.handler.codec.http.HttpHeaderValues.CLOSE;
-import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
-import static io.netty.handler.codec.http.HttpHeaderValues.TEXT_PLAIN;
-import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.handler.codec.http.LastHttpContent.EMPTY_LAST_CONTENT;
 
 import io.grpc.HttpRequest.Method;
 import io.grpc.Metadata;
@@ -33,12 +27,12 @@ import io.grpc.internal.ServerTransportListener;
 import io.grpc.internal.StatsTraceContext;
 import io.grpc.internal.TransportTracer;
 import io.grpc.netty.NettyHttp1ServerStream.TransportState;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.HttpChunkedInput;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.HttpRequest;
@@ -127,12 +121,19 @@ class NettyHttp1ServerHandler extends SimpleChannelInboundHandler<HttpObject> {
     ctx.close();
   }
 
-  ChannelFuture write(FullHttpResponse response) {
-    return ctx.write(response);
+  void close() {
+    flush();
+    ctx.close();
   }
 
   void flush() {
+    // should we check to see if we wrote anything?
+    ctx.writeAndFlush(EMPTY_LAST_CONTENT);
     ctx.flush();
+  }
+
+  ChannelFuture write(Object msg) {
+    return ctx.write(msg, ctx.newProgressivePromise());
   }
 
   WriteQueue getWriteQueue() {

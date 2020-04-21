@@ -387,8 +387,12 @@ class NettyServer implements InternalServer, InternalWithLogId {
 
   @Nullable
   HttpHandler lookupHttpHandler(Method method, URI uri) {
-    return httpHandlers.get(new HttpHandlerKey(method, uri.getPath()));
-    // do more exotic things later
+    for (Map.Entry<HttpHandlerKey, HttpHandler> entry : httpHandlers.entrySet()) {
+      if (entry.getKey().matches(method, uri)) {
+        return entry.getValue();
+      }
+    }
+    return null;
   }
 
   class SharedResourceReferenceCounter extends AbstractReferenceCounted {

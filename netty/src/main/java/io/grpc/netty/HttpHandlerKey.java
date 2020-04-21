@@ -1,14 +1,18 @@
 package io.grpc.netty;
 
 import io.grpc.HttpRequest.Method;
+import io.grpc.HttpRulePattern;
+import java.net.URI;
 
 final class HttpHandlerKey {
   private final Method method;
   private final String pattern;
+  private final HttpRulePattern rulePattern;
 
   HttpHandlerKey(Method method, String pattern) {
     this.method = method;
     this.pattern = pattern;
+    this.rulePattern = HttpRulePattern.parse(pattern);
   }
 
   @Override
@@ -25,8 +29,7 @@ final class HttpHandlerKey {
     return method.hashCode() ^ pattern.hashCode();
   }
 
-  boolean matches(Method method, String pattern) {
-    // FIXME pattern match
-    return this.method == method && this.pattern.equals(pattern);
+  boolean matches(Method method, URI uri) {
+    return this.method == method && rulePattern.matches(uri);
   }
 }

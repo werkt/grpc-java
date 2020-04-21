@@ -31,6 +31,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpServerExpectContinueHandler;
+import io.netty.handler.stream.ChunkedWriteHandler;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.logging.Logger;
@@ -95,6 +96,7 @@ class NettyHttp1ServerTransport extends NettyServerTransport {
     /* ssl? */
     channel.pipeline().addLast(new HttpServerCodec());
     channel.pipeline().addLast(new HttpServerExpectContinueHandler());
+    channel.pipeline().addLast(new ChunkedWriteHandler());
     channel.pipeline().addLast(handler);
   }
 
