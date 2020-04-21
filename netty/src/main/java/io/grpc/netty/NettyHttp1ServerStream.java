@@ -23,22 +23,35 @@ import io.grpc.internal.ServerStreamListener;
 import io.grpc.internal.StatsTraceContext;
 import io.grpc.internal.StreamListener;
 import io.grpc.internal.TransportTracer;
+import io.grpc.internal.TransportFrameUtil;
 import io.grpc.internal.WritableBuffer;
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelProgressiveFuture;
+import io.netty.channel.ChannelProgressiveFutureListener;
 import io.netty.channel.EventLoop;
+import io.netty.handler.codec.http.DefaultHttpHeaders;
+import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpChunkedInput;
+import io.netty.handler.codec.http.HttpContent;
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpUtil;
+import io.netty.handler.stream.ChunkedInput;
+import io.netty.handler.stream.ChunkedStream;
 import io.perfmark.Link;
 import io.perfmark.PerfMark;
 import io.perfmark.Tag;
 import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import javax.annotation.Nullable;
@@ -110,8 +123,7 @@ class NettyHttp1ServerStream implements ServerStream {
     Preconditions.checkState(!enable, "message compression is not supported");
   }
 
-  @Override
-  public void writeHeaders(Metadata headers) {
+  void writeHeaders(HttpHeaders headers) {
     Preconditions.checkNotNull(headers, "headers");
 
     headersSent = true;
@@ -119,27 +131,42 @@ class NettyHttp1ServerStream implements ServerStream {
     // abstractServerStreamSink().writeHeaders(headers);
   }
 
-  void close(HttpResponseStatus status, Metadata trailers) {
-    Preconditions.checkNotNull(trailers, "trailers");
-    if (!outboundClosed) {
-      outboundClosed = true;
-      // endOfMessages();
-      // addStatusToTrailers(trailers, status);
+  @Override
+  public void writeHeaders(Metadata headers) {
+    Preconditions.checkNotNull(headers, "headers");
 
-      // Safe to set without synchronization because access is tightly controlled.
-      // closedStatus is only set from here, and is read from a place that has happen-after
-      // guarantees with respect to here.
-      state.setClosedStatus(status);
-      // abstractServerStreamSink().writeTrailers(trailers, headersSent, status);
-      state.writeTrailers(trailers, headersSent, status);
+    /* there has to be a better way to get these things out... */
+    HttpHeaders httpHeaders = new DefaultHttpHeaders();
+    byte[][] http2Headers = TransportFrameUtil.toHttp2Headers(headers);
+    for (int i = 0; i < http2Headers.length; i += 2) {
+      httpHeaders.set(new String(http2Headers[i]), new String(http2Headers[i + 1]));
     }
+    writeHeaders(httpHeaders);
+  }
+
+  void setStatus(HttpResponseStatus status) {
+    // endOfMessages();
+    // addStatusToTrailers(trailers, status);
+
+    // Safe to set without synchronization because access is tightly controlled.
+    // responseStatus is only set from here, and is read from a place that has happen-after
+    // guarantees with respect to here.
+    state.setResponseStatus(status);
+    // abstractServerStreamSink().writeTrailers(trailers, headersSent, status);
+    // end the content stream maybe?
+    // state.writeTrailers(trailers, headersSent, status);
   }
 
   @Override
   public void close(Status status, Metadata trailers) {
     Preconditions.checkNotNull(status, "status");
-    int httpStatus = GrpcUtil.grpcCodeToHttpStatus(status.getCode());
-    close(HttpResponseStatus.valueOf(httpStatus), trailers);
+    Preconditions.checkNotNull(trailers, "trailers");
+    if (!outboundClosed) {
+      outboundClosed = true;
+
+      int httpStatus = GrpcUtil.grpcCodeToHttpStatus(status.getCode());
+      setStatus(HttpResponseStatus.valueOf(httpStatus));
+    }
   }
 
   @Override
@@ -310,8 +337,8 @@ class NettyHttp1ServerStream implements ServerStream {
 
     /** The status that the application used to close this stream. */
     @Nullable
-    private HttpResponseStatus closedStatus = null;
-    private Metadata responseHeaders;
+    private HttpResponseStatus responseStatus = null;
+    private HttpHeaders responseHeaders;
     private ServerStreamListener listener;
     private Decompressor decompressor;
     private boolean halfClosed = false;
@@ -371,20 +398,19 @@ class NettyHttp1ServerStream implements ServerStream {
       halfClosed = true;
     }
 
-    private static final byte[] CONTENT = { };
-
     /**
      * Stores the {@code Status} that the application used to close this stream.
      */
-    private void setClosedStatus(HttpResponseStatus status) {
-      Preconditions.checkState(closedStatus == null, "closedStatus can only be set once");
-      this.closedStatus = status;
+    private void setResponseStatus(HttpResponseStatus status) {
+      Preconditions.checkState(responseStatus == null, "responseStatus can only be set once");
+      this.responseStatus = status;
       // this is our end event, but http sucks, so....
       // figure out the ordering to see if we can send the content, even streaming
       if (shouldFlush) {
         try {
           flushRequest();
         } catch (IOException e) {
+          e.printStackTrace();
           throw new RuntimeException(e);
         }
         shouldFlush = false;
@@ -395,7 +421,7 @@ class NettyHttp1ServerStream implements ServerStream {
       /* technically shouldn't flush, should just schedule one */
       /* maybe do something else with the trailers if we also have headers? */
       if (!headersSent) {
-        this.responseHeaders = trailers;
+        throw new UnsupportedOperationException();
       }
       try {
         flush();
@@ -407,7 +433,7 @@ class NettyHttp1ServerStream implements ServerStream {
 
     private void flush() throws IOException {
       System.out.println("flushing...");
-      if (closedStatus != null) {
+      if (responseStatus != null) {
         flushRequest();
       } else {
         shouldFlush = true;
@@ -416,22 +442,15 @@ class NettyHttp1ServerStream implements ServerStream {
 
     private void flushRequest() throws IOException {
       System.out.println("flushing content...");
-      String headers = responseHeaders.toString();
-      if (!headers.equals("Metadata()")) {
-        System.err.println("Not flushing with the following headers: " + headers);
-      }
 
-      /* need to detect if we've flushed already */
-      Preconditions.checkState(closedStatus != null, "transportState was not closed");
-      FullHttpResponse response = new DefaultFullHttpResponse(
+      /* technically this should be reentrant and stateful for periodic flushes */
+
+      /* need to detect if we've sent the response already */
+      Preconditions.checkState(responseStatus != null, "transportState was not closed");
+      HttpResponse response = new DefaultHttpResponse(
           request.protocolVersion(),
-          closedStatus,
-          Unpooled.wrappedBuffer(ByteStreams.toByteArray(responseContent)));
-
-      // TODO set headers from response/trailers
-      response.headers()
-          .set(CONTENT_TYPE, TEXT_PLAIN)
-          .setInt(CONTENT_LENGTH, response.content().readableBytes());
+          responseStatus);
+      response.headers().setAll(responseHeaders);
 
       boolean keepAlive = HttpUtil.isKeepAlive(request);
       if (keepAlive) {
@@ -442,19 +461,61 @@ class NettyHttp1ServerStream implements ServerStream {
         // Tell the client we're going to close the connection.
         response.headers().set(CONNECTION, CLOSE);
       }
+      ChannelFuture contentWritten = handler.write(response); // should we tie to future?
 
       /* tie on to existing contentWritten? */
-      ChannelFuture contentWritten = handler.write(response);
+      contentWritten = handler.write(new HttpChunkedInput(new ChunkedStream(responseContent)));
+      System.err.println("");
+      final byte[] ESC = {27, (byte) '['};
+      contentWritten.addListener(
+          new ChannelProgressiveFutureListener() {
+            long deliveredTotal = -1;
+
+            @Override
+            public void operationProgressed(ChannelProgressiveFuture future, long progress, long total) {
+              clear();
+              if (total < 0) { // total unknown
+                System.err.println(future.channel() + " Transfer progress: " + progress);
+              } else {
+                deliveredTotal = total;
+                System.err.println(future.channel() + " Transfer progress: " + progress + " / " + total);
+              }
+            }
+
+            void clear() {
+              /*
+              try {
+                System.err.write(ESC);
+                System.err.write((byte) 'A');
+                System.err.write(ESC);
+                System.err.write((byte) 'K');
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+              */
+            }
+
+            @Override
+            public void operationComplete(ChannelProgressiveFuture future) {
+              handler.close();
+              try {
+                responseContent.close();
+              } catch (IOException e) {
+                e.printStackTrace(); // do something more?
+              }
+              clear();
+              System.err.println(future.channel() + " Transfer of " + deliveredTotal + " complete.");
+            }
+          });
       /* should be writing the above in phases as set, not just here */
       handler.flush();
 
       if (!keepAlive) {
-        System.err.println("IS NOT KEEPALIVE");
         contentWritten.addListener(ChannelFutureListener.CLOSE);
       }
     }
 
-    private void setResponseHeaders(Metadata responseHeaders) {
+    private void setResponseHeaders(HttpHeaders responseHeaders) {
       this.responseHeaders = responseHeaders;
     }
 
