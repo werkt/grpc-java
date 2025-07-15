@@ -48,7 +48,7 @@ import java.util.logging.Logger;
 /**
  * The Netty-based server transport.
  */
-class NettyHttp2ServerTransport implements NettyServerTransport {
+class NettyHttp2ServerTransport extends NettyServerTransport {
   // connectionLog is for connection related messages only
   private static final Logger connectionLog = Logger.getLogger(
       String.format("%s.connections", NettyHttp2ServerTransport.class.getName()));
@@ -63,7 +63,7 @@ class NettyHttp2ServerTransport implements NettyServerTransport {
   private final ProtocolNegotiator protocolNegotiator;
   private final int maxStreams;
   // only accessed from channel event loop
-  private NettyServerHandler grpcHandler;
+  private NettyHttp2ServerHandler grpcHandler;
   private ServerTransportListener listener;
   private boolean terminated;
   private final boolean autoFlowControl;
@@ -267,9 +267,9 @@ class NettyHttp2ServerTransport implements NettyServerTransport {
   /**
    * Creates the Netty handler to be used in the channel pipeline.
    */
-  private NettyServerHandler createHandler(
+  private NettyHttp2ServerHandler createHandler(
       ServerTransportListener transportListener, ChannelPromise channelUnused) {
-    return NettyServerHandler.newHandler(
+    return NettyHttp2ServerHandler.newHandler(
         transportListener,
         channelUnused,
         streamTracerFactories,

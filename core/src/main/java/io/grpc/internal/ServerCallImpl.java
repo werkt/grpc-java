@@ -112,6 +112,25 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
     checkState(!sendHeadersCalled, "sendHeaders has already been called");
     checkState(!closeCalled, "call is closed");
 
+    /*
+    if (isHttp) {
+      fillHttpHeadersInternal(headers);
+    } else {
+    */
+      fillGrpcHeadersInternal(headers);
+    // }
+
+    // Don't check if sendMessage has been called, since it requires that sendHeaders was already
+    // called.
+    sendHeadersCalled = true;
+    stream.writeHeaders(headers, !getMethodDescriptor().getType().serverSendsOneMessage());
+  }
+
+  private void fillHttpHeadersInternal(Metadata headers) {
+    method.fillHttpHeaders(headers);
+  }
+
+  private void fillGrpcHeadersInternal(Metadata headers) {
     headers.discardAll(CONTENT_LENGTH_KEY);
     headers.discardAll(MESSAGE_ENCODING_KEY);
     if (compressor == null) {
@@ -141,11 +160,6 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
     if (advertisedEncodings.length != 0) {
       headers.put(MESSAGE_ACCEPT_ENCODING_KEY, advertisedEncodings);
     }
-
-    // Don't check if sendMessage has been called, since it requires that sendHeaders was already
-    // called.
-    sendHeadersCalled = true;
-    stream.writeHeaders(headers, !getMethodDescriptor().getType().serverSendsOneMessage());
   }
 
   @Override

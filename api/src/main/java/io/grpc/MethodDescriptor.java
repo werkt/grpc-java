@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.CheckReturnValue;
+import io.grpc.Metadata;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -204,6 +205,8 @@ public final class MethodDescriptor<ReqT, RespT> {
 
   public interface HttpResponseEncoder<T>  {
     InputStream encode(T response);
+
+    void fillHeaders(Metadata headers);
   }
 
   private static final class UnmatchedRequestDecoder<ReqT> implements HttpRequestDecoder<ReqT> {
@@ -221,6 +224,11 @@ public final class MethodDescriptor<ReqT, RespT> {
   private static final class UnimplementedResponseEncoder<RespT> implements HttpResponseEncoder<RespT> {
     @Override
     public InputStream encode(RespT response) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void fillHeaders(Metadata headers) {
       throw new UnsupportedOperationException();
     }
   }
@@ -374,6 +382,10 @@ public final class MethodDescriptor<ReqT, RespT> {
 
   public InputStream streamHttpResponse(RespT response) {
     return httpResponseEncoder.encode(response);
+  }
+
+  public void fillHttpHeaders(Metadata metadata) {
+    httpResponseEncoder.fillHeaders(metadata);
   }
 
   /**

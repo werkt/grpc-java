@@ -4,6 +4,7 @@ import com.google.common.base.Preconditions;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
+import io.grpc.Metadata;
 import io.grpc.MethodDescriptor.HttpRequestDecoder;
 import io.grpc.MethodDescriptor.HttpResponseEncoder;
 import io.grpc.HttpRequest;
@@ -45,15 +46,27 @@ public final class HttpRuleUtils {
   }
 
   public static <T extends Message> HttpResponseEncoder<T> encoder(T response) {
+    // should take in accept header value and determine which formatter to use
     return new HttpResponseEncoder<T>() {
+      public static final Metadata.Key<String> CONTENT_TYPE_KEY =
+          Metadata.Key.of("content-type", Metadata.ASCII_STRING_MARSHALLER);
+
       @Override
       public InputStream encode(T response) {
+        return response.toByteString().newInput();
+        /*
         try {
           String json = JsonFormat.printer().print(response);
           return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
           throw new RuntimeException(e);
         }
+        */
+      }
+
+      @Override
+      public void fillHeaders(Metadata headers) {
+        headers.put(CONTENT_TYPE_KEY, "application/json");
       }
     };
   }

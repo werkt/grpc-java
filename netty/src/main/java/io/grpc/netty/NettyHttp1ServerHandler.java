@@ -32,11 +32,8 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.http.HttpChunkedInput;
-import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.HttpUtil;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -84,8 +81,7 @@ class NettyHttp1ServerHandler extends SimpleChannelInboundHandler<HttpObject> {
 
   @Override
   public void channelRead0(ChannelHandlerContext ctx, HttpObject msg) {
-    if (msg instanceof HttpRequest) {
-      HttpRequest request = (HttpRequest) msg;
+    if (msg instanceof HttpRequest request) {
       // get headers out of msg
       Metadata metadata = Utils.convertHeaders(request.headers());
       StatsTraceContext statsTraceCtx =

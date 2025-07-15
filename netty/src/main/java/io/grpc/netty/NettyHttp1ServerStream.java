@@ -87,6 +87,11 @@ class NettyHttp1ServerStream implements ServerStream {
   }
 
   @Override
+  public void optimizeForDirectExecutor() {
+    // transportState().optimizeForDirectExecutor();
+  }
+
+  @Override
   public void request(int numMessages) {
     state.requestMessages(numMessages);
   }
@@ -124,6 +129,7 @@ class NettyHttp1ServerStream implements ServerStream {
   }
 
   void writeHeaders(HttpHeaders headers) {
+    System.out.println("writeHeaders: " + headers);
     Preconditions.checkNotNull(headers, "headers");
 
     headersSent = true;
@@ -132,7 +138,7 @@ class NettyHttp1ServerStream implements ServerStream {
   }
 
   @Override
-  public void writeHeaders(Metadata headers) {
+  public void writeHeaders(Metadata headers, boolean flush) {
     Preconditions.checkNotNull(headers, "headers");
 
     /* there has to be a better way to get these things out... */
@@ -151,10 +157,12 @@ class NettyHttp1ServerStream implements ServerStream {
     // Safe to set without synchronization because access is tightly controlled.
     // responseStatus is only set from here, and is read from a place that has happen-after
     // guarantees with respect to here.
-    state.setResponseStatus(status);
     // abstractServerStreamSink().writeTrailers(trailers, headersSent, status);
     // end the content stream maybe?
     // state.writeTrailers(trailers, headersSent, status);
+    
+    // writeTrailers must do this for the Http2 ServerStream
+    state.writeTrailers(/* metadata= */ null, headersSent, status);
   }
 
   @Override
@@ -198,6 +206,12 @@ class NettyHttp1ServerStream implements ServerStream {
   @Override
   public void setListener(ServerStreamListener serverStreamListener) {
     state.setListener(serverStreamListener);
+  }
+
+  @Override
+  public void setOnReadyThreshold(int numBytes) {
+    // might actually need something here
+    // No-op
   }
 
   /*
@@ -403,7 +417,7 @@ class NettyHttp1ServerStream implements ServerStream {
      */
     private void setResponseStatus(HttpResponseStatus status) {
       Preconditions.checkState(responseStatus == null, "responseStatus can only be set once");
-      this.responseStatus = status;
+      responseStatus = status;
       // this is our end event, but http sucks, so....
       // figure out the ordering to see if we can send the content, even streaming
       if (shouldFlush) {
@@ -418,6 +432,7 @@ class NettyHttp1ServerStream implements ServerStream {
     }
 
     private void writeTrailers(Metadata trailers, boolean headersSent, HttpResponseStatus status) {
+      setResponseStatus(status);
       /* technically shouldn't flush, should just schedule one */
       /* maybe do something else with the trailers if we also have headers? */
       if (!headersSent) {
@@ -432,7 +447,6 @@ class NettyHttp1ServerStream implements ServerStream {
     }
 
     private void flush() throws IOException {
-      System.out.println("flushing...");
       if (responseStatus != null) {
         flushRequest();
       } else {
@@ -441,8 +455,6 @@ class NettyHttp1ServerStream implements ServerStream {
     }
 
     private void flushRequest() throws IOException {
-      System.out.println("flushing content...");
-
       /* technically this should be reentrant and stateful for periodic flushes */
 
       /* need to detect if we've sent the response already */

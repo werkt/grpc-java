@@ -30,13 +30,21 @@ public final class HttpRulePattern {
     StringBuilder fieldName = null;
     pattern.append("^");
     int wildcard = 0;
+    boolean verb = false;
     boolean mustBeSlash = true;
     boolean wildcardValid = false;
     boolean lastWasSlash = false;
+    boolean pendingPatternSlash = false;
     for (char c = it.current(); c != CharacterIterator.DONE; c = it.next()) {
       boolean isFieldEquals = false;
       // override mustBeSlash here
-      if (c == '}') {
+      if (c == ':') {
+        verb = true;
+      }
+      if (verb) {
+        // must be a part of the path?
+        pattern.append(c);
+      } else if (c == '}') {
         if (wildcard < 2) {
           pattern.append("[^/]+");
           wildcard = 0;
