@@ -536,6 +536,7 @@ public final class ServerImpl extends io.grpc.Server implements InternalInstrume
         private void runInternal() {
           ServerMethodDefinition<?, ?> wrapMethod;
           ServerCallParameters<?, ?> callParams;
+          System.out.println("runInternal called for " + uri);
           try {
             ServerMethodDefinition<?, ?> method = registry.lookupHttpMethod(requestMethod, uri);
             if (method == null) {

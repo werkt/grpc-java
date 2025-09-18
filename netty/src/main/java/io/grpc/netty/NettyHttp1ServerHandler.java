@@ -75,7 +75,9 @@ class NettyHttp1ServerHandler extends SimpleChannelInboundHandler<HttpObject> {
 
   @Override
   public void channelReadComplete(ChannelHandlerContext ctx) {
-    state.setHalfClosed();
+    if (state != null) {
+      state.setHalfClosed();
+    }
     // ctx.flush();
   }
 
@@ -123,9 +125,11 @@ class NettyHttp1ServerHandler extends SimpleChannelInboundHandler<HttpObject> {
   }
 
   void flush() {
-    // should we check to see if we wrote anything?
-    ctx.writeAndFlush(EMPTY_LAST_CONTENT);
-    ctx.flush();
+    if (ctx.channel().isActive()) {
+      // should we check to see if we wrote anything?
+      ctx.writeAndFlush(EMPTY_LAST_CONTENT);
+      ctx.flush();
+    }
   }
 
   ChannelFuture write(Object msg) {

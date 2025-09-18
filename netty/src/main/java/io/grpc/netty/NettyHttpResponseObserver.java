@@ -9,6 +9,7 @@ import java.io.InputStream;
 
 class NettyHttpResponseObserver extends HttpResponseObserver {
   private final NettyHttp1ServerStream stream;
+  private boolean writeHeaders = true;
 
   private HttpHeaders headers = new DefaultHttpHeaders();
 
@@ -17,14 +18,20 @@ class NettyHttpResponseObserver extends HttpResponseObserver {
   }
 
   private void close(HttpResponseStatus status) {
-    stream.writeHeaders(headers);
+    if (writeHeaders) {
+      stream.writeHeaders(headers);
+    }
+    writeHeaders = false;
     stream.setStatus(status);
     stream.flush();
   }
 
   @Override
   public void onSuccess(InputStream responseStream) {
-    stream.writeHeaders(headers);
+    if (writeHeaders) {
+      stream.writeHeaders(headers);
+    }
+    writeHeaders = false;
     stream.writeMessage(responseStream);
     close(OK);
   }

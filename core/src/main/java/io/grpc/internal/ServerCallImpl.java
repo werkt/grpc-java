@@ -112,13 +112,11 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
     checkState(!sendHeadersCalled, "sendHeaders has already been called");
     checkState(!closeCalled, "call is closed");
 
-    /*
     if (isHttp) {
       fillHttpHeadersInternal(headers);
     } else {
-    */
       fillGrpcHeadersInternal(headers);
-    // }
+    }
 
     // Don't check if sendMessage has been called, since it requires that sendHeaders was already
     // called.

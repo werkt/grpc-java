@@ -3,7 +3,6 @@ package io.grpc.netty;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONNECTION;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
-import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
 import static io.netty.handler.codec.http.HttpHeaderValues.CLOSE;
 import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
 import static io.netty.handler.codec.http.HttpHeaderValues.TEXT_PLAIN;
@@ -127,6 +126,8 @@ class NettyHttp1ServerStream implements ServerStream {
   public void setMessageCompression(boolean enable) {
     Preconditions.checkState(!enable, "message compression is not supported");
   }
+
+  private boolean wroteHeaders = false;
 
   void writeHeaders(HttpHeaders headers) {
     System.out.println("writeHeaders: " + headers);
@@ -420,6 +421,7 @@ class NettyHttp1ServerStream implements ServerStream {
       responseStatus = status;
       // this is our end event, but http sucks, so....
       // figure out the ordering to see if we can send the content, even streaming
+      /*
       if (shouldFlush) {
         try {
           flushRequest();
@@ -429,6 +431,7 @@ class NettyHttp1ServerStream implements ServerStream {
         }
         shouldFlush = false;
       }
+      */
     }
 
     private void writeTrailers(Metadata trailers, boolean headersSent, HttpResponseStatus status) {
@@ -449,8 +452,26 @@ class NettyHttp1ServerStream implements ServerStream {
     private void flush() throws IOException {
       if (responseStatus != null) {
         flushRequest();
+        responseStatus = null;
+        shouldFlush = false;
       } else {
         shouldFlush = true;
+      }
+    }
+
+    private long streamLength(InputStream stream) throws IOException {
+      if (stream.markSupported()) {
+        stream.mark(1 << 31);
+        long n = 0;
+        int i;
+        byte[] buf = new byte[256];
+        for (n = 0, i = 0; i != -1; i = stream.read(buf)) {
+          n += i;
+        }
+        stream.reset();
+        return n;
+      } else {
+        throw new RuntimeException("mark not supported");
       }
     }
 
@@ -473,12 +494,16 @@ class NettyHttp1ServerStream implements ServerStream {
         // Tell the client we're going to close the connection.
         response.headers().set(CONNECTION, CLOSE);
       }
+      if (!response.headers().contains(CONTENT_LENGTH)) {
+        response.headers().set(CONTENT_LENGTH, streamLength(responseContent));
+      }
+
       ChannelFuture contentWritten = handler.write(response); // should we tie to future?
 
       /* tie on to existing contentWritten? */
       contentWritten = handler.write(new HttpChunkedInput(new ChunkedStream(responseContent)));
       System.err.println("");
-      final byte[] ESC = {27, (byte) '['};
+      // final byte[] ESC = {27, (byte) '['};
       contentWritten.addListener(
           new ChannelProgressiveFutureListener() {
             long deliveredTotal = -1;
@@ -509,7 +534,8 @@ class NettyHttp1ServerStream implements ServerStream {
 
             @Override
             public void operationComplete(ChannelProgressiveFuture future) {
-              handler.close();
+              System.err.println(future.channel() + "operationComplete called");
+              handler.flush();
               try {
                 responseContent.close();
               } catch (IOException e) {
@@ -523,6 +549,7 @@ class NettyHttp1ServerStream implements ServerStream {
       handler.flush();
 
       if (!keepAlive) {
+        System.out.println("WTF, we're closing??");
         contentWritten.addListener(ChannelFutureListener.CLOSE);
       }
     }

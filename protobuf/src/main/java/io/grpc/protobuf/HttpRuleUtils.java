@@ -53,15 +53,12 @@ public final class HttpRuleUtils {
 
       @Override
       public InputStream encode(T response) {
-        return response.toByteString().newInput();
-        /*
         try {
           String json = JsonFormat.printer().print(response);
           return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
           throw new RuntimeException(e);
         }
-        */
       }
 
       @Override
